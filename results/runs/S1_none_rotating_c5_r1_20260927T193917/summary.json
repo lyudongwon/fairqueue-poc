@@ -1,0 +1,115 @@
+{
+  "run_id": "S1_none_rotating_c5_r1_20260927T193917",
+  "status": "ok",
+  "human": {
+    "n": 558,
+    "p50_ms": 303.7,
+    "p95_ms": 1027.4,
+    "p99_ms": 2206.9,
+    "fail_rate": 0.0,
+    "fails_by_status": {}
+  },
+  "human_by_route": {
+    "home": {
+      "n": 139,
+      "p50_ms": 208.9,
+      "p95_ms": 370.5,
+      "p99_ms": 504.3,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "src": {
+      "n": 141,
+      "p50_ms": 270.4,
+      "p95_ms": 631.4,
+      "p99_ms": 1082.4,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "commits": {
+      "n": 139,
+      "p50_ms": 334.1,
+      "p95_ms": 566.4,
+      "p99_ms": 696.2,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "commit": {
+      "n": 139,
+      "p50_ms": 562.3,
+      "p95_ms": 2031.0,
+      "p99_ms": 3589.9,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    }
+  },
+  "human_send_lag_p99_ms": 2.3,
+  "gateway": {
+    "requests": 1832,
+    "human_requests": 645,
+    "crawler_requests": 1186,
+    "new_sessions_total": 1193,
+    "new_sessions_crawler": 1182
+  },
+  "crawler_ok_rps": 5.51,
+  "crawler_work_index": 1.331,
+  "crawler_gateway": {
+    "requests_measure": 995,
+    "status": {
+      "200": 991,
+      "499": 4
+    },
+    "with_cookie": 0,
+    "distinct_ips": 995,
+    "route_share": {
+      "blame": 0.256,
+      "commit": 0.496,
+      "compare": 0.099,
+      "src": 0.148
+    },
+    "ok_route_share": {
+      "blame": 0.256,
+      "commit": 0.495,
+      "compare": 0.1,
+      "src": 0.148
+    },
+    "ok_upstream_p50_ms": 415.4,
+    "sessions_created_measure": 991
+  },
+  "crawler_client": {
+    "requests_measure": 996,
+    "ok_rps": 5.51,
+    "status": {
+      "200": 991,
+      "cut": 5
+    }
+  },
+  "gitea": {
+    "cpu_pct_mean": 182.1,
+    "cpu_pct_p95": 194.9,
+    "psi_cpu_some_mean": 23.4,
+    "mem_start_mb": 92.9,
+    "mem_peak_mb": 411.3,
+    "mem_anon_peak_mb": 406.4,
+    "mem_limit_mb": 2048,
+    "mem_peak_pct": 20.1,
+    "psi_mem_some_max": 0.0,
+    "mem_events_max": 0,
+    "oom_kill": 0,
+    "memory_bottleneck": false
+  },
+  "other_containers": {
+    "gateway": {
+      "cpu_pct_p95": 16.8,
+      "cpu_pct_max": 27.3
+    },
+    "human": {
+      "cpu_pct_p95": 2.0,
+      "cpu_pct_max": 3.5
+    },
+    "crawler": {
+      "cpu_pct_p95": 7.3,
+      "cpu_pct_max": 13.1
+    }
+  }
+}

@@ -1,0 +1,4 @@
+{"run_id": "S1_none_rotating_c2_r1_20260927T193536", "scenario": "S1", "rep": 1, "mode": "none", "crawler": "rotating",
+ "c": 2, "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 1,
+ "git": "bc5b6a6",
+ "started": "2026-09-27T10:35:36Z", "ended": "2026-09-27T10:39:16Z", "status": "ok"}
