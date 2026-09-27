@@ -126,9 +126,34 @@ def fig2_fig3():
     print("wrote fig2, fig3")
 
 
+def fig4():
+    """Stage 7: human p95 per crawler kind, anon-cap vs fq-cost vs fq-cost-probation (small multiples)."""
+    rows = {(r["mode"], r["crawler"]): r for r in csv.DictReader(open("results/summary.csv")) if r["c"] == "50"}
+    s0 = next(float(r["human_p95_ms"]) for r in csv.DictReader(open("results/summary.csv")) if r["scenario"] == "S0")
+    kinds = ["rotating", "cookie-keeper", "cookie-farm"]
+    modes = ["anon-cap", "fq-cost", "fq-cost-probation"]
+    fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), dpi=150, facecolor=SURFACE, sharex=True)
+    top = max(float(rows[(m, k)]["human_p95_ms"]) for m in modes for k in kinds if (m, k) in rows) / 1000
+    for ax, k in zip(axes, kinds):
+        style(ax)
+        labels = [m for m in modes if (m, k) in rows]
+        vals = [float(rows[(m, k)]["human_p95_ms"]) / 1000 for m in labels]
+        hbar(ax, labels, vals, lambda v: "≥30 s (timeout)" if v >= 29.9 else f"{v:.2f} s")
+        ax.set_xlim(0, top * 1.5)
+        ax.axvline(1.5 * s0 / 1000, color=INK2, linewidth=1, linestyle=(0, (6, 3)), zorder=3)
+        ax.set_title(f"crawler: {k}", color=INK, fontsize=10, loc="left")
+        ax.set_xlabel("human p95 (s)", color=INK2, fontsize=9)
+    fig.suptitle(f"Human p95 by gateway policy (C=50, pooled over reps; dashed = 1.5×S0 = {1.5 * s0:.0f} ms)",
+                 color=INK, fontsize=11, x=0.01, ha="left")
+    fig.tight_layout()
+    fig.savefig(os.path.join(OUT, "fig4_fq_human_p95.png"), facecolor=SURFACE)
+    print("wrote fig4")
+
+
 if __name__ == "__main__":
     import sys
     sys.path.insert(0, os.path.dirname(__file__))
     fig1()
     if len(sys.argv) > 1 and sys.argv[1] == "all":
         fig2_fig3()
+        fig4()

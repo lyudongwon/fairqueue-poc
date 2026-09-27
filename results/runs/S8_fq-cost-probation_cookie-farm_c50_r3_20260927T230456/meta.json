@@ -1,0 +1,5 @@
+{"run_id": "S8_fq-cost-probation_cookie-farm_c50_r3_20260927T230456", "scenario": "S8", "rep": 3, "mode": "fq-cost-probation", "crawler": "cookie-farm",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4, "fq_slots": 4, "probation_s": 600, "human_cookie_age_s": 86400},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 3,
+ "git": "5687563",
+ "started": "2026-09-27T14:04:56Z", "ended": "2026-09-27T14:08:36Z", "status": "ok"}

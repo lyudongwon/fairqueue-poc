@@ -314,6 +314,72 @@ This meets the spec's condition for the topic's rationale:
 - Protecting humans requires scheduling that accounts for how much each principal consumes. In this data a single session held 83 % of the protected slots.
 - Per-session limits alone would not close the gap either: the S6 farm spreads the same load over 100 sessions (≈ 1 % of the requests each).
 
+## Stage 7 — cost-based fair queue (S7 fq-cost, S8 fq-cost-probation)
+
+Setup (details in DECISIONS.md):
+- Two new gateway modes run under the S4/S5/S6 crawler conditions (rotating / cookie-keeper / cookie-farm), with C = 50 and 3 reps each. Commit `5687563`.
+- **`fq-cost`**: 4 upstream slots. A freed slot goes to the waiting principal with the least accumulated upstream time.
+  - principal = session cookie; all cookieless requests share `anon`
+  - a principal is charged an estimate at dispatch, corrected to the actual time at release
+  - no decay, and no virtual-time floor (new principals start at 0)
+- **`fq-cost-probation`**: the same, except that sessions first seen by the gateway **less than T = 600 s ago** share one principal, `new`.
+  - Humans are registered as first seen 24 h ago, via the gateway's internal `/seen` endpoint, before t0.
+  - A run lasts 210 s, so no crawler session leaves probation within a run.
+- Table from `python analysis/fq_table.py`. Human/crawler cost is the upstream time summed over the measure window, mean of reps.
+
+| crawler | mode | human p95 | ×S0 | human fail | p95 per rep (ms) | human gw wait p95 | crawler work index | human cost (s) | crawler cost (s) | largest crawler principal (share of all cost) | crawler sessions · cost/session |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| rotating | anon-cap (S4) | **596 ms** | 2.14 | 0 % | 563 / 561 / 647 | 0 | 1.06 | – | – | – | – |
+| rotating | fq-cost (S7) | **1.24 s** | 4.44 | 0 % | 1304 / 1224 / 1141 | 0.95 s | 1.12 | 126 | 556 | `anon` 80–83 % | 0 |
+| rotating | fq-cost-probation (S8) | **1.34 s** | 4.82 | 0 % | 1179 / 1359 / 1428 | 1.02 s | 1.13 | 126 | 557 | `anon` 80–83 % | 0 |
+| cookie-keeper | anon-cap (S5) | **13.38 s** | 47.98 | 0 % | 12453 / 13204 / 13687 | 13.4 s | 1.16 | – | – | – | – |
+| cookie-keeper | fq-cost (S7) | **1.36 s** | 4.88 | 0 % | 1194 / 1539 / 1260 | 1.18 s | 1.16 | 125 | 558 | its one session 81–83 % | 1 · 558 s |
+| cookie-keeper | fq-cost-probation (S8) | **1.23 s** | 4.42 | 0 % | 1133 / 1213 / 1330 | 0.92 s | 1.16 | 125 | 555 | `new` 81–83 % | 1 · 555 s |
+| cookie-farm | anon-cap (S6) | **14.09 s** | 50.55 | 0 % | 12300 / 14467 / 14362 | 14.3 s | 1.08 | – | – | – | – |
+| cookie-farm | fq-cost (S7) | **≥ 30 s**‡ | ≥ 107 | **28.4 %** | 30008 / 30008 / 30008 | 29.0 s | 1.23 | 83 | 614 | one session ≈ 2 % | 100 · 6.1 s |
+| cookie-farm | fq-cost-probation (S8) | **1.19 s** | 4.28 | 0 % | 1007 / 1238 / 1210 | 0.94 s | 1.14 | 124 | 559 | `new` 81–82 % | 100 · 5.6 s |
+
+‡ Right-censored at the 30 s human timeout. 28.4 % of human requests failed: 30 s client timeouts, plus 503s from the gateway's own 30 s wait cap.
+
+Gitea CPU was 184–187 % in every S7/S8 run, with CPU PSI 21–24 %. Memory peaked at 478 MB (23 %), so no run hit the memory-bottleneck rule.
+
+![fig4](results/figures/fig4_fq_human_p95.png)
+
+### What the per-principal costs show
+- **fq-cost vs one heavy principal (rotating → `anon`, keeper → its one session): it works.**
+  - That principal accounts for 80–83 % of all upstream time.
+  - Each human session accounts for ≈ 12–13 s per run, and the crawler principal for ≈ 555 s. Every human request therefore goes ahead of every queued crawler request.
+  - Against the cookie-keeper this turns S5's 13.4 s into 1.36 s.
+- **fq-cost vs a cookie farm: it fails, worse than anything else measured.**
+  - Split over 100 sessions, the farm costs ≈ 6.1 s per session. A human session had used ≈ 8.3 s in these runs.
+  - The per-principal rule therefore ranks **every farm session ahead of every human**.
+  - Humans starve: p95 ≥ 30 s, and 28 % of human requests failed. The crawler gets its highest work index of any scenario (1.23).
+  - Per-principal fairness is only as good as the principal definition, and a session is free to mint.
+- **fq-cost-probation closes the farm hole.**
+  - All 100 young farm sessions collapse into `new` (81–82 % of cost), exactly like the single keeper session or `anon`.
+  - Human p95 is 1.19–1.34 s under all three crawler kinds, with 0 failures.
+  - **The result no longer depends on how the crawler handles cookies.** That is the property anon-cap (S4–S6) lacked.
+- **The crawler is not starved under either fq mode** (except fq-cost + farm, where it wins). Work index is 1.12–1.16, the same range as anon-cap S4–S6 (1.06–1.16). Humans take ≈ 18 % of upstream time, and the crawler gets the rest.
+
+### Why humans still sit at ~4.3–4.9× S0
+- None of the fq results meets the 1.5× line (418 ms), and all are about 2× worse than anon-cap vs rotating (596 ms).
+- The residual is not ordering. Humans' gateway wait **p50 is ≈ 0.11–0.14 s**, while **p95 is ≈ 0.7–1.2 s**.
+  - The queue is non-preemptive and work-conserving across only 4 slots. When a human arrives, all 4 slots are usually held by crawler requests (80–83 % of slot time), some of them multi-second compare or blame pages.
+  - The human is first in line, but must wait for one of those requests to finish.
+  - Admitted human requests then share Gitea's 2 CPUs with up to 3 crawler requests (upstream p95 0.6–0.7 s vs ≈ 0.28 s in S0).
+- anon-cap avoided this against cookieless crawlers only because it **reserved** 4 slots humans never shared, and capped crawlers at 2 in flight.
+- Reaching the 1.5× line would need reserved or limited capacity for low-priority principals, preemption, or a cost cap per request, on top of cost ordering. **None of these was tested.**
+
+### Limits of probation (T = 600 s)
+- **Pre-aged cookies.** A bot can mint sessions, wait T, and then use them (Gitea memory sessions last 24 h).
+  - Aged sessions are ordinary principals, so probation reduces to plain `fq-cost`.
+  - The **S7 cookie-farm row (≥ 30 s, 28 % failures) is the expected outcome for a pre-aged farm**. The cost of that attack is only waiting 10 minutes.
+  - Probation raises the bar from "free" to "plan ahead", no more.
+- **New humans pay for it.** A genuine first-time visitor shares the `new` principal with every young bot session for T seconds, so under attack new users are served like the crawler.
+  - This was not measured: humans here are registered as 24 h old.
+  - It compounds the first-visit limitation below.
+- **T interacts with run length.** With T = 600 s > 210 s per run, crawler sessions never graduated. A run longer than T would show crawler sessions graduating, carrying their accumulated cost, which the design preserves. That is untested.
+
 ## Known limitations
 
 - `X-Forwarded-For` only simulates IP rotation. The requests do not come from different network paths.
@@ -326,6 +392,8 @@ This meets the spec's condition for the topic's rationale:
   - A human with no session cookie yet (a first visit, or cookies cleared or expired) is indistinguishable from a cookieless crawler. That human's first request, and every request sent before the cookie arrives, waits in the anon pool behind the crawlers.
   - In the stage 4 smoke test with unprimed users, only 61 % of human requests carried a cookie. Gateway wait p95 was ≈ 10 s, and a 503 there (no Set-Cookie) left a user cookieless indefinitely.
   - The S2–S6 measurements prime every user (returning visitors), so **they do not measure the first-visit experience**, which under anon-cap is as bad as the crawler queue.
+- `fq-cost-probation` depends on cookie age, which a bot can pre-age past T (600 s). A pre-aged farm is expected to behave like `fq-cost` + cookie-farm (S7): human p95 ≥ 30 s. See stage 7.
+- The fq modes use gateway-measured upstream time as cost, not Gitea CPU time. Cost is kept in gateway memory with no decay, and resets at every gateway restart (every run).
 - S0/S1 humans were unprimed (cookie obtained on the first request), while S2 onward are primed. The measure windows are comparable: every S0/S1 user had its cookie within the warmup.
 - Stage 4 used a single parameter set per mode (no N/M sweep). The Q2 verdict holds for anon N=2 / M=4 only.
 - The session provider is memory. Every cookieless request creates a server-side session that lives 24 h, so a cookieless crawler also grows Gitea's heap.

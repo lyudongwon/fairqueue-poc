@@ -1,0 +1,5 @@
+{"run_id": "S8_fq-cost-probation_rotating_c50_r1_20260927T220546", "scenario": "S8", "rep": 1, "mode": "fq-cost-probation", "crawler": "rotating",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4, "fq_slots": 4, "probation_s": 600, "human_cookie_age_s": 86400},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 1,
+ "git": "5687563",
+ "started": "2026-09-27T13:05:46Z", "ended": "2026-09-27T13:09:26Z", "status": "ok"}

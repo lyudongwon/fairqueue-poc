@@ -1,0 +1,5 @@
+{"run_id": "S7_fq-cost_rotating_c50_r2_20260927T222414", "scenario": "S7", "rep": 2, "mode": "fq-cost", "crawler": "rotating",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4, "fq_slots": 4, "probation_s": 600, "human_cookie_age_s": 86400},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 2,
+ "git": "5687563",
+ "started": "2026-09-27T13:24:14Z", "ended": "2026-09-27T13:27:54Z", "status": "ok"}

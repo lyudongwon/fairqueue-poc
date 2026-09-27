@@ -1,0 +1,182 @@
+{
+  "run_id": "S8_fq-cost-probation_cookie-farm_c50_r1_20260927T222033",
+  "status": "ok",
+  "human": {
+    "n": 558,
+    "p50_ms": 323.9,
+    "p95_ms": 1006.9,
+    "p99_ms": 1861.4,
+    "fail_rate": 0.0,
+    "fails_by_status": {}
+  },
+  "human_by_route": {
+    "home": {
+      "n": 139,
+      "p50_ms": 222.4,
+      "p95_ms": 716.6,
+      "p99_ms": 1042.8,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "src": {
+      "n": 141,
+      "p50_ms": 267.2,
+      "p95_ms": 935.1,
+      "p99_ms": 1444.5,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "commits": {
+      "n": 139,
+      "p50_ms": 310.1,
+      "p95_ms": 909.9,
+      "p99_ms": 1339.0,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "commit": {
+      "n": 139,
+      "p50_ms": 524.3,
+      "p95_ms": 1789.4,
+      "p99_ms": 2181.9,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    }
+  },
+  "human_send_lag_p99_ms": 2.1,
+  "gateway": {
+    "requests": 1931,
+    "human_requests": 645,
+    "crawler_requests": 1285,
+    "new_sessions_total": 100,
+    "new_sessions_crawler": 100
+  },
+  "human_gateway": {
+    "wait_p50_ms": 118.7,
+    "wait_p95_ms": 686.9,
+    "upstream_p95_ms": 662.3,
+    "cookie_share": 1.0
+  },
+  "crawler_ok_rps": 4.97,
+  "crawler_work_index": 1.176,
+  "crawler_gateway": {
+    "requests_measure": 945,
+    "status": {
+      "200": 895,
+      "499": 50
+    },
+    "with_cookie": 945,
+    "distinct_ips": 945,
+    "route_share": {
+      "blame": 0.248,
+      "commit": 0.496,
+      "compare": 0.097,
+      "src": 0.159
+    },
+    "ok_route_share": {
+      "blame": 0.249,
+      "commit": 0.489,
+      "compare": 0.097,
+      "src": 0.164
+    },
+    "ok_upstream_p50_ms": 275.1,
+    "ok_wait_p50_ms": 8571.1,
+    "sessions_created_measure": 0
+  },
+  "slot_occupancy": {
+    "fq": {
+      "slots": 4,
+      "human_share_of_capacity": 0.167,
+      "crawler_share_of_capacity": 0.83,
+      "crawler_share_of_used": 0.833,
+      "human_wait_p50_ms": 118.7,
+      "human_wait_p95_ms": 686.9,
+      "crawler_wait_p50_ms": 8588.8,
+      "crawler_wait_p95_ms": 12988.0,
+      "human_requests": 558,
+      "crawler_requests": 902
+    }
+  },
+  "principal_costs": {
+    "principals": 11,
+    "human_principals": 10,
+    "human_cost_s": 120.2,
+    "crawler_cost_s": 568.0,
+    "human_cost_per_principal_s": 12.02,
+    "top": [
+      {
+        "principal": "new",
+        "class": "crawler",
+        "requests": 945,
+        "cost_s": 568.0,
+        "share": 0.825
+      },
+      {
+        "principal": "s:d94afc6a",
+        "class": "human",
+        "requests": 59,
+        "cost_s": 16.2,
+        "share": 0.023
+      },
+      {
+        "principal": "s:16a1f86e",
+        "class": "human",
+        "requests": 62,
+        "cost_s": 14.8,
+        "share": 0.021
+      },
+      {
+        "principal": "s:bf170796",
+        "class": "human",
+        "requests": 67,
+        "cost_s": 13.3,
+        "share": 0.019
+      },
+      {
+        "principal": "s:94567c56",
+        "class": "human",
+        "requests": 62,
+        "cost_s": 13.0,
+        "share": 0.019
+      }
+    ],
+    "crawler_sessions": 100,
+    "crawler_cost_per_session_s": 5.68
+  },
+  "crawler_client": {
+    "requests_measure": 945,
+    "ok_rps": 4.97,
+    "status": {
+      "200": 895,
+      "cut": 50
+    }
+  },
+  "gitea": {
+    "cpu_pct_mean": 184.7,
+    "cpu_pct_p95": 194.8,
+    "psi_cpu_some_mean": 23.1,
+    "mem_start_mb": 101.0,
+    "mem_peak_mb": 451.2,
+    "mem_anon_peak_mb": 447.1,
+    "mem_limit_mb": 2048,
+    "mem_peak_pct": 22.0,
+    "psi_mem_some_max": 0.0,
+    "mem_events_max": 0,
+    "oom_kill": 0,
+    "memory_bottleneck": false
+  },
+  "other_containers": {
+    "gateway": {
+      "cpu_pct_p95": 16.8,
+      "cpu_pct_max": 24.5
+    },
+    "human": {
+      "cpu_pct_p95": 2.1,
+      "cpu_pct_max": 3.3
+    },
+    "crawler": {
+      "cpu_pct_p95": 8.3,
+      "cpu_pct_max": 12.7
+    }
+  }
+}
