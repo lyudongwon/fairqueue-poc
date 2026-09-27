@@ -1,0 +1,17 @@
+{
+  "source": "https://github.com/redis/redis",
+  "branch": "unstable",
+  "head": "20bb2cfc54aa08c8fdfb8c4c0a8b8258e811711e",
+  "commits_reachable": 13304,
+  "commits_first_parent": 9966,
+  "seed": 42,
+  "compare_max_dist": 50,
+  "counts": {
+    "home": 1,
+    "src": 1871,
+    "commits": 267,
+    "commit": 13304,
+    "blame": 20000,
+    "compare": 9916
+  }
+}

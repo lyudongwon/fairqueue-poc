@@ -1,0 +1,45 @@
+# CPU layout (WSL VM = 12 vCPU, see DECISIONS.md)
+#   0-1  : reserved for VM / dockerd overhead (nothing pinned)
+#   2-3  : gitea            (2 cores, 2GB)
+#   4-5  : gateway
+#   6    : human simulator
+#   7-10 : crawler
+#   11   : tools (seeding, cost measurement, docker stats)
+name: fairqueue
+
+services:
+  gitea:
+    image: gitea/gitea:1.27.3
+    cpuset: "2-3"
+    cpus: 2
+    mem_limit: 2g
+    memswap_limit: 2g
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__server__ROOT_URL: http://gitea:3000/
+      GITEA__server__DOMAIN: gitea
+      GITEA__server__DISABLE_SSH: "true"
+      GITEA__service__DISABLE_REGISTRATION: "true"
+    volumes:
+      - gitea-data:/data
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  tools:
+    build: ./loadgen
+    cpuset: "11"
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - work:/work
+    environment:
+      GITEA_URL: http://gitea:3000
+    depends_on: [gitea]
+    profiles: ["tools"]
+
+volumes:
+  gitea-data:
+  work:
