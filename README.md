@@ -36,6 +36,9 @@ Gitea is restarted before every run, which clears its in-memory caches and sessi
 make stage1                    # seed redis/redis, build URL pools, cost table
 sh scripts/run.sh S0 1         # one run: MODE=none, no crawler
 make s0                        # S0 x3
+make s1-sweep                  # S1 rotating, C = 10/50/100/200 (C = 2/5 and extra reps via scripts/run.sh)
+make stage4                    # S2 (naive + rotating), S3, S4 x3 at C=50
+make stage5                    # S5 (cookie-keeper), S6 (cookie-farm) x3 at C=50
 ```
 
 Each run writes `results/runs/<run_id>/`:
@@ -253,6 +256,63 @@ Relative to the unprotected case, the simple cookieless cap removes **~95 % of t
 The residual 2× is CPU contention inside Gitea from the crawlers' two in-flight slots, not queueing. A smaller anon N (1) would likely trade crawler throughput for human latency, but that is **untested**.
 
 The spec's reading: if the simple fix largely works, Q3 decides the case. Here it largely works, though not to the 1.5× line. **Q3 (cookie-keeper / cookie-farm through the cookie pool) is therefore the deciding experiment.**
+
+## Stage 5 — crawlers that keep cookies (S5, S6) → Q3
+
+Setup:
+- `anon-cap` with anon N = 2 and cookie M = 4, the same as S4. Crawler C = 50, 3 reps each, commit `4eb5e10`. Humans are primed, as in S4.
+- **cookie-keeper (S5):** gets 1 session cookie through the gateway at the start and uses it on every request from all 50 workers.
+- **cookie-farm (S6):** gets 100 cookies and round-robins them.
+- Both keep rotating their XFF.
+- Slot occupancy comes from the gateway log (DECISIONS.md). Tables come from `python analysis/scenario_table.py`.
+
+| scenario | human p50 | human p95 | ×S0 | human p99 | human fail | p95 per rep | human gw wait p95 | cookie slots: crawler share of used | cookie slots held, human / crawler (of M=4) | crawler 2xx/s | work index | sessions |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| S0 | 46 ms | **279 ms** | 1.00 | 662 ms | 0 % | 271 / 267 / 299 | 0 | – | – | – | – | 10 |
+| S1 none / rotating | 2.42 s | **6.83 s** | 24.5 | 10.86 s | 0.2 % | 6784 / 6609 / 7000 | 0 | – | – | 7.55 | 1.53 | 1,761 |
+| S4 anon-cap / rotating | 140 ms | **596 ms** | 2.14 | 1.39 s | 0 % | 563 / 561 / 647 | **0** | **0 %** | 16 % / 0 % | 4.47 | 1.06 | 1,018 |
+| S5 anon-cap / cookie-keeper | 9.76 s | **13.38 s** | **48.0** | 14.35 s | 0 % | 12453 / 13204 / 13687 | 13.4 s | **83 %** | 17 % / 83 % | 4.68 | 1.16 | **1** |
+| S6 anon-cap / cookie-farm | 10.06 s | **14.09 s** | **50.6** | 15.05 s | 0 % | 12300 / 14467 / 14362 | 14.3 s | **82 %** | 18 % / 82 % | 4.48 | 1.08 | **100** |
+
+Other observations:
+- Gitea CPU was 185 % in both S5 and S6.
+- CPU PSI was ≈ 22 % (S4: ≈ 16 %).
+- Memory peaked at 491 MB (24 %). There was no memory bottleneck.
+- In both S5 and S6 the anon pool sat empty (0 % crawler occupancy), because every crawler request moved into the cookie pool.
+
+Per-rep cookie-pool detail (from `summary.json → slot_occupancy.cookie`):
+
+| run | human wait p50 / p95 | crawler wait p50 | human upstream p95 | crawler share of used |
+|---|---|---|---|---|
+| S5 r1 | 8.9 / 12.3 s | 8.6 s | 605 ms | 84.6 % |
+| S5 r2 | 9.8 / 12.6 s | 9.3 s | 588 ms | 82.4 % |
+| S5 r3 | 10.1 / 13.4 s | 10.1 s | 727 ms | 81.9 % |
+| S6 r1 | 8.6 / 12.0 s | 8.2 s | 642 ms | 84.1 % |
+| S6 r2 | 10.4 / 14.3 s | 10.3 s | 675 ms | 80.5 % |
+| S6 r3 | 10.0 / 14.0 s | 9.9 s | 794 ms | 81.7 % |
+
+### What happens
+- **One cookie is enough.** A crawler holding a single session cookie (S5) moves all of its traffic from the 2-slot anon pool into the 4-slot cookie pool.
+- There it takes **80–85 % of the slot-seconds** and pushes humans into the same FIFO.
+  - Human and crawler waits are nearly identical (p50 ≈ 9–10 s each), which is what a shared FIFO does.
+  - Once admitted, human requests are fast again (upstream p95 0.6–0.8 s).
+  - The human share of slot-seconds (17–18 %) is about what humans used in S4 (16 %). Humans get the same amount of service, but only after queueing behind ~46 crawler requests.
+- **Human p95 becomes worse than no protection at all**: 13.4–14.1 s vs S1's 6.8 s.
+  - The outcome now matches S3 (global cap, 12.2 s). The cookie pool has effectively become a global cap that the crawler shares with humans.
+- **The crawler loses nothing by keeping a cookie.** Its work index is 1.08–1.16, equal to or above its S4 value (1.06). The cookie pool has more slots than the anon pool.
+- **Farming 100 cookies (S6) gives the same result as keeping 1 (S5).** The difference is within rep-to-rep noise. Under `anon-cap`, the number of sessions a crawler holds is irrelevant: only "has a cookie" matters.
+- Humans see no failures: every wait stayed under the 30 s cap.
+
+### Q3 verdict: **the simple fix collapses**
+- With one kept cookie, the S4 defence goes from 2.1× S0 to **48× S0** (S5), and to 51× with a cookie farm (S6).
+- All three reps of each scenario are ≥ 44×.
+- That is worse than having no defence (24.5×).
+- Mechanism: under `anon-cap`, the cookie flag is the only thing separating crawlers from humans. Anyone can obtain a cookie for free with a single request, so the flag no longer separates them.
+
+This meets the spec's condition for the topic's rationale:
+- A cookie alone is not enough to tell humans from crawlers.
+- Protecting humans requires scheduling that accounts for how much each principal consumes. In this data a single session held 83 % of the protected slots.
+- Per-session limits alone would not close the gap either: the S6 farm spreads the same load over 100 sessions (≈ 1 % of the requests each).
 
 ## Known limitations
 

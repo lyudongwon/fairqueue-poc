@@ -1,0 +1,5 @@
+{"run_id": "S6_anon-cap_cookie-farm_c50_r1_20260927T212551", "scenario": "S6", "rep": 1, "mode": "anon-cap", "crawler": "cookie-farm",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 1,
+ "git": "4eb5e10",
+ "started": "2026-09-27T12:25:51Z", "ended": "2026-09-27T12:29:30Z", "status": "ok"}

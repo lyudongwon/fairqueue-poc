@@ -1,0 +1,5 @@
+{"run_id": "S5_anon-cap_cookie-keeper_c50_r3_20260927T213656", "scenario": "S5", "rep": 3, "mode": "anon-cap", "crawler": "cookie-keeper",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 3,
+ "git": "4eb5e10",
+ "started": "2026-09-27T12:36:56Z", "ended": "2026-09-27T12:40:39Z", "status": "ok"}
