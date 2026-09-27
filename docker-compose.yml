@@ -33,6 +33,11 @@ services:
     cpuset: "4-5"
     environment:
       MODE: ${MODE:-none}
+      RATE_PER_IP: ${RATE_PER_IP:-2}
+      BURST_PER_IP: ${BURST_PER_IP:-2}
+      GLOBAL_N: ${GLOBAL_N:-4}
+      ANON_N: ${ANON_N:-2}
+      COOKIE_M: ${COOKIE_M:-4}
       UPSTREAM: http://gitea:3000
       LOG_PATH: /app/${RUN_DIR:-results/scratch}/raw/gateway.jsonl
     volumes:

@@ -51,6 +51,28 @@ The spec's "heavy path candidates" are 4 types. The 2 human-only types (home, sr
   The run's result must then be reported as a memory bottleneck, not a CPU one.
 - The gateway port is not published to the host because Windows reserves 127.0.0.1:8080. The gateway is reachable only on the compose network.
 
+## Stage 3 → 4 choices
+- S1 is 1 rep at C = 2/5/10/100/200 and 3 reps at C = 50. C=50 is the comparison point for everything after it.
+- **Crawler concurrency is fixed at C = 50 for S2–S6.** C=50 is the S1 throughput knee (work index +9 % from 10→50, +1 % from 50→100). Gitea memory there peaks at 47 % of the limit, so a memory bottleneck does not confound Q2/Q3. C=200 hit 96 %.
+- Degradation onset: the first C where human p95 ≥ 1.5× S0. See the README stage 3 table.
+
+## Gateway parameters (stage 4)
+- `ratelimit-ip`: token bucket per XFF IP, **2 req/s, burst 2**, as in the spec. Excess gets 429 with `Retry-After: 1`.
+  - Human users send ≈ 0.3 req/s per IP, so they never hit it.
+  - Idle buckets are evicted every 10 s, so rotating IPs cannot grow the map without bound.
+- `global-cap`: **N = 4** concurrent upstream requests. The FIFO wait is capped at 30 s, then 503.
+  - S1 shows Gitea's 2 CPUs already saturated (183 % of 200 %) at C=10, and C=10→50 added only 9 % work. Gitea needs ≤ 10 concurrent requests to be CPU-bound, so any N ≥ 10 would let it thrash as in S1.
+  - Humans alone need little: S0 averages 0.27 cores, and concurrency is ≈ λ·latency ≈ 3 × 0.1 s ≈ 0.3.
+  - N = 2 × cores keeps both cores busy while some requests wait on git subprocess I/O or on writing large responses. It is small enough that excess queues visibly at the gateway (`wait_ms`) instead of inside Gitea.
+  - Check: S3's crawler work index should stay close to S1@C=50's. If it drops a lot, N=4 starved Gitea.
+- `anon-cap`: cookieless requests share **N = 2** slots (one per core, so crawlers get at most ≈ 1 core-equivalent of heavy requests in flight). Cookie holders get a separate **M = 4** (same size as global N; humans use ≈ 0.3 concurrent on average).
+  - The pools are independent, so Gitea may run up to 6 requests at once.
+  - Each human's very first request has no cookie yet and goes through the anon pool. That is 10 requests per run, all in warmup.
+- Waiting clients that disconnect are removed from the FIFO and logged as 499.
+- Crawler behaviour on 429/503: the worker sleeps `Retry-After` (1 s) before its next request. Without this, a naive crawler at C=50 would spin on instant 429s at thousands of req/s, measuring the load generator instead of Gitea.
+- S2 is run with **both** naive (fixed IP: the case the rate limit is designed for) and rotating (the case it is expected to fail).
+- The gateway is 387 lines of Go excluding tests (main.go 209 + admit.go 178), over the spec's 200-line target. The admission policies were kept in a separate file for reuse by FairQueue.
+
 ## Load generator
 - The human simulator is **open-loop**: Poisson arrivals at about 3 req/s in total, so the send schedule does not depend on responses. This avoids coordinated omission. The spec's closed-loop design (10 users, 2–5 s think time) is replaced.
   - There are still 10 virtual users, each with its own cookie jar and its own fixed XFF (`10.0.0.1`–`10.0.0.10`).

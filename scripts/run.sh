@@ -5,6 +5,7 @@ set -eu
 SCEN=${1:?scenario id}
 REP=${2:-1}
 export MODE=${MODE:-none} CRAWLER=${CRAWLER:-none} C=${C:-0}
+export RATE_PER_IP=${RATE_PER_IP:-2} BURST_PER_IP=${BURST_PER_IP:-2} GLOBAL_N=${GLOBAL_N:-4} ANON_N=${ANON_N:-2} COOKIE_M=${COOKIE_M:-4}
 export WARMUP=${WARMUP:-30} DURATION=${DURATION:-180} RATE=${RATE:-3} SEED=$REP
 
 # Never measure uncommitted code (results/ is output, so it is exempt).
@@ -49,7 +50,8 @@ ended=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 cat > "$RUN_DIR/meta.json" <<EOF
 {"run_id": "$RUN_ID", "scenario": "$SCEN", "rep": $REP, "mode": "$MODE", "crawler": "$CRAWLER",
- "c": $C, "warmup_s": $WARMUP, "duration_s": $DURATION, "human_rate": $RATE, "seed": $SEED,
+ "c": $C, "gateway_params": {"rate_per_ip": $RATE_PER_IP, "burst_per_ip": $BURST_PER_IP, "global_n": $GLOBAL_N, "anon_n": $ANON_N, "cookie_m": $COOKIE_M},
+ "warmup_s": $WARMUP, "duration_s": $DURATION, "human_rate": $RATE, "seed": $SEED,
  "git": "$(git rev-parse --short HEAD)",
  "started": "$started", "ended": "$ended", "status": "$status"}
 EOF
