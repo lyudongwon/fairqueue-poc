@@ -28,6 +28,48 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
 
+  gateway:
+    build: ./gateway
+    cpuset: "4-5"
+    environment:
+      MODE: ${MODE:-none}
+      UPSTREAM: http://gitea:3000
+      LOG_PATH: /app/${RUN_DIR:-results/scratch}/raw/gateway.jsonl
+    volumes:
+      - ./results:/app/results
+    depends_on: [gitea]
+
+  human:
+    build: ./loadgen
+    cpuset: "6"
+    working_dir: /app
+    command: python loadgen/human.py
+    environment:
+      TARGET: http://gateway:8080
+      POOL: /app/urlpool
+      RUN_DIR: /app/${RUN_DIR:-results/scratch}
+      RATE: ${RATE:-3}
+      WARMUP: ${WARMUP:-30}
+      DURATION: ${DURATION:-180}
+      SEED: ${SEED:-1}
+    volumes:
+      - ./:/app
+    profiles: ["run"]
+
+  monitor:
+    build: ./loadgen
+    cpuset: "11"
+    working_dir: /app
+    command: python scripts/monitor.py
+    stop_signal: SIGTERM
+    environment:
+      RUN_DIR: /app/${RUN_DIR:-results/scratch}
+      TARGETS: ${TARGETS:-}
+    volumes:
+      - ./:/app
+      - /sys/fs/cgroup:/host_cgroup:ro
+    profiles: ["run"]
+
   tools:
     build: ./loadgen
     cpuset: "11"

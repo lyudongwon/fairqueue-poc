@@ -1,0 +1,4 @@
+{"run_id": "S0_none_none_c0_r2_20260927T183749", "scenario": "S0", "rep": 2, "mode": "none", "crawler": "none",
+ "c": 0, "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 2,
+ "git": "6f66036-dirty",
+ "started": "2026-09-27T09:37:49Z", "ended": "2026-09-27T09:41:27Z", "status": "ok"}

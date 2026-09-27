@@ -34,6 +34,23 @@ The spec's "heavy path candidates" are 4 types. The 2 human-only types (home, sr
   - Limitation: a crawler could send a fabricated value. This is outside Q3's scope and goes in the README limitations.
 - Side effect: every cookieless request makes Gitea create a new session, so a cookieless crawler also creates sessions in bulk.
 
+## Sessions and memory (stage 2)
+- Confirmed on Gitea's admin config page: **Session Provider = memory**, Session Life Time = 86400 s, GC Interval = 86400 s.
+  - Sessions accumulate on Gitea's heap and are never collected within a run.
+  - The count cannot be read directly, so the gateway logs responses carrying `Set-Cookie: i_like_gitea` as `new_session`.
+  - Gitea restarts before each run, so the cumulative `new_session` count equals the number of live sessions.
+- Resources are recorded by `scripts/monitor.py` reading cgroup v2 files directly every second, **instead of `docker stats`**.
+  - It is the same data source, with exact 1 s spacing. It adds the anon/file memory split, PSI (cpu/memory pressure), memory.events and oom_kill.
+  - The gateway, human and crawler containers are recorded too, to catch load-generator saturation.
+- **Memory bottleneck** is flagged when any of these holds in the measure window:
+  - memory.current ≥ 90 % of the limit
+  - `memory.events max` > 0
+  - oom_kill > 0
+  - memory PSI "some" ≥ 5 % in any 1 s interval
+
+  The run's result must then be reported as a memory bottleneck, not a CPU one.
+- The gateway port is not published to the host because Windows reserves 127.0.0.1:8080. The gateway is reachable only on the compose network.
+
 ## Load generator
 - The human simulator is **open-loop**: Poisson arrivals at about 3 req/s in total, so the send schedule does not depend on responses. This avoids coordinated omission. The spec's closed-loop design (10 users, 2–5 s think time) is replaced.
   - There are still 10 virtual users, each with its own cookie jar and its own fixed XFF (`10.0.0.1`–`10.0.0.10`).

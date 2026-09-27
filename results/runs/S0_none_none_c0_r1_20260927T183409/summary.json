@@ -1,0 +1,79 @@
+{
+  "run_id": "S0_none_none_c0_r1_20260927T183409",
+  "status": "ok",
+  "human": {
+    "n": 558,
+    "p50_ms": 44.2,
+    "p95_ms": 270.6,
+    "p99_ms": 550.7,
+    "fail_rate": 0.0,
+    "fails_by_status": {}
+  },
+  "human_by_route": {
+    "home": {
+      "n": 139,
+      "p50_ms": 17.3,
+      "p95_ms": 28.2,
+      "p99_ms": 57.2,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "src": {
+      "n": 141,
+      "p50_ms": 33.3,
+      "p95_ms": 109.9,
+      "p99_ms": 326.9,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "commits": {
+      "n": 139,
+      "p50_ms": 60.0,
+      "p95_ms": 86.3,
+      "p99_ms": 110.9,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "commit": {
+      "n": 139,
+      "p50_ms": 91.6,
+      "p95_ms": 421.5,
+      "p99_ms": 821.6,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    }
+  },
+  "human_send_lag_p99_ms": 2.6,
+  "gateway": {
+    "requests": 646,
+    "human_requests": 645,
+    "crawler_requests": 0,
+    "new_sessions_total": 10,
+    "new_sessions_crawler": 0
+  },
+  "crawler_ok_rps": 0.0,
+  "gitea": {
+    "cpu_pct_mean": 23.6,
+    "cpu_pct_p95": 64.8,
+    "psi_cpu_some_mean": 1.2,
+    "mem_start_mb": 92.9,
+    "mem_peak_mb": 194.2,
+    "mem_anon_peak_mb": 191.4,
+    "mem_limit_mb": 2048,
+    "mem_peak_pct": 9.5,
+    "psi_mem_some_max": 0.0,
+    "mem_events_max": 0,
+    "oom_kill": 0,
+    "memory_bottleneck": false
+  },
+  "other_containers": {
+    "gateway": {
+      "cpu_pct_p95": 2.3,
+      "cpu_pct_max": 8.8
+    },
+    "human": {
+      "cpu_pct_p95": 1.9,
+      "cpu_pct_max": 3.7
+    }
+  }
+}
