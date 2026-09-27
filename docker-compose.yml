@@ -100,6 +100,14 @@ services:
     depends_on: [gitea]
     profiles: ["tools"]
 
+  analysis:
+    build: ./analysis
+    cpuset: "11"
+    working_dir: /app
+    volumes:
+      - ./:/app
+    profiles: ["tools"]
+
 volumes:
   gitea-data:
   work:
