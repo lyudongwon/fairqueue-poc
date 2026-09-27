@@ -38,6 +38,8 @@ services:
       GLOBAL_N: ${GLOBAL_N:-4}
       ANON_N: ${ANON_N:-2}
       COOKIE_M: ${COOKIE_M:-4}
+      FQ_SLOTS: ${FQ_SLOTS:-4}
+      PROBATION_S: ${PROBATION_S:-600}
       UPSTREAM: http://gitea:3000
       LOG_PATH: /app/${RUN_DIR:-results/scratch}/raw/gateway.jsonl
     volumes:
@@ -57,6 +59,8 @@ services:
       WARMUP: ${WARMUP:-30}
       DURATION: ${DURATION:-180}
       SEED: ${SEED:-1}
+      REGISTER_URL: ${REGISTER_URL:-}
+      HUMAN_COOKIE_AGE_S: ${HUMAN_COOKIE_AGE_S:-86400}
     volumes:
       - ./:/app
     profiles: ["run"]

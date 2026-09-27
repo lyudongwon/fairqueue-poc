@@ -26,6 +26,8 @@ DURATION = float(os.environ.get("DURATION", "180"))
 TIMEOUT = float(os.environ.get("HUMAN_TIMEOUT", "30"))
 SEED = int(os.environ.get("SEED", "1"))
 PRIME_URL = os.environ.get("PRIME_URL", "http://gitea:3000/")  # "" disables priming
+REGISTER_URL = os.environ.get("REGISTER_URL", "")  # gateway /seen endpoint (fq modes only)
+COOKIE_AGE_S = int(os.environ.get("HUMAN_COOKIE_AGE_S", "86400"))
 CYCLE = ["home", "src", "commits", "commit"]
 WALL_OFFSET = time.time() - time.monotonic()
 
@@ -91,6 +93,10 @@ async def prime(users):
             # matching for dotless names like "gateway" would otherwise drop it).
             u.client.headers["Cookie"] = f"i_like_gitea={val}"
             u.client.cookies.jar.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+            if REGISTER_URL:  # fq modes: tell the gateway this session is long-established
+                rr = await c.post(REGISTER_URL, params={"session": val, "age_s": COOKIE_AGE_S})
+                if rr.status_code != 204:
+                    raise SystemExit(f"register failed for user {u.idx + 1}: {rr.status_code}")
 
 
 async def main():

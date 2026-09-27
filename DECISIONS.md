@@ -98,6 +98,51 @@ The spec's "heavy path candidates" are 4 types. The 2 human-only types (home, sr
   - Requests rejected (429/503) or cancelled while waiting are excluded, because they held no slot.
   - For reference, in S4 the cookie pool was 0 % crawler (humans used ~16 % of its capacity), and the anon pool was 99.7 % crawler.
 
+## Stage 7 — cost-based fair queue (S7 fq-cost, S8 fq-cost-probation)
+
+Both modes run under the S4/S5/S6 crawler conditions (rotating / cookie-keeper / cookie-farm), with C = 50 and 3 reps each. Code is in `gateway/fq.go`.
+
+### Principals
+- A session cookie (`i_like_gitea` value) is its own principal.
+- All cookieless requests share one principal, `anon`.
+- `fq-cost-probation` adds one rule: a session the gateway **first saw less than T seconds ago** belongs to the shared principal `new`.
+  - Cost still accrues per session while in probation.
+  - On graduation the session starts as its own principal carrying that cost, so probation cannot be used to launder cost.
+
+### Scheduling
+- There are **4 upstream slots**, the same as `global-cap` N=4.
+  - The S3 comparison therefore isolates the ordering policy (FIFO vs cheapest-principal-first) at equal concurrency.
+  - `anon-cap` had 2 + 4 = 6 slots, which is a caveat when comparing with S4–S6.
+- A freed slot goes to the waiting principal with the **smallest accumulated upstream time**. Ties go to the oldest head-of-line request. Requests of one principal are FIFO.
+- The work-conserving rule is unchanged: a slot never idles while anyone waits.
+- The 30 s wait cap (503) and 499-on-disconnect are unchanged.
+
+### Cost
+- Cost is the gateway's measured `upstream_ms` (time from dispatch to the end of the response). It is not CPU time.
+- At dispatch, a principal is charged an **estimate**: its own mean upstream time so far, else the global mean, else 100 ms. At release this is corrected to the actual time.
+  - Without the estimate, requests still in flight cost nothing, and one principal could take every free slot before being charged.
+- Costs never decay and reset only when the gateway restarts, which happens every run.
+- There is **no virtual-time floor**: a brand-new principal starts at 0, which follows the spec literally ("least accumulated cost first").
+  - A principal appearing late therefore gets priority until it catches up. This is exactly what the cookie-farm tests: 100 fresh sessions, each cheap.
+
+### T and human registration
+- **T = 600 s (10 min)**.
+  - Each run lasts 210 s (30 s warmup + 180 s measure), so within a run no crawler cookie ever leaves probation.
+  - S8 therefore measures "all crawler sessions are young", the regime probation is designed for.
+- Humans are **registered as long-established**. After priming, the human simulator calls the gateway's internal endpoint `POST :9090/seen?session=…&age_s=86400`, which is only reachable on the compose network. Their first-seen time is thus 24 h in the past.
+  - This stands for real users whose sessions predate the attack.
+  - The endpoint exists only in fq modes (`REGISTER_URL` is set by `run.sh` for `MODE=fq-*`).
+
+### Limitation of probation
+- **A bot can pre-age cookies.** It can fetch sessions, wait T, then use them, and memory sessions last 24 h in this Gitea.
+  - Once aged, its sessions are treated like any long-standing user, so probation reduces to plain `fq-cost`.
+  - The **S7 cookie-farm result is therefore also the expected result for a pre-aged farm under S8**. It was not run as a separate scenario.
+- Probation also delays legitimate new users by up to T: every first-time visitor shares the `new` principal with every young bot session. This was not measured, because humans are registered as old.
+
+### Logging
+- The gateway log now records `sess` (the first 8 characters of the session cookie) and `principal`.
+- `analysis/summarize.py → principal_costs` sums `upstream_ms` per principal and per session over the measure window.
+
 ## Load generator
 - The human simulator is **open-loop**: Poisson arrivals at about 3 req/s in total, so the send schedule does not depend on responses. This avoids coordinated omission. The spec's closed-loop design (10 users, 2–5 s think time) is replaced.
   - There are still 10 virtual users, each with its own cookie jar and its own fixed XFF (`10.0.0.1`–`10.0.0.10`).

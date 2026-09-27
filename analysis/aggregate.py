@@ -64,6 +64,12 @@ def main():
                 [s.get("slot_occupancy", {}).get("cookie", {}).get("crawler_share_of_capacity") for _, _, s in ok]),
             "human_cookie_pool_wait_p95_ms": max_opt(
                 [s.get("slot_occupancy", {}).get("cookie", {}).get("human_wait_p95_ms") for _, _, s in ok]),
+            "fq_slot_crawler_share_of_used": mean_opt(
+                [s.get("slot_occupancy", {}).get("fq", {}).get("crawler_share_of_used") for _, _, s in ok]),
+            "human_fq_wait_p95_ms": max_opt(
+                [s.get("slot_occupancy", {}).get("fq", {}).get("human_wait_p95_ms") for _, _, s in ok]),
+            "fq_human_cost_s": mean_opt([s.get("principal_costs", {}).get("human_cost_s") for _, _, s in ok]),
+            "fq_crawler_cost_s": mean_opt([s.get("principal_costs", {}).get("crawler_cost_s") for _, _, s in ok]),
             "gitea_cpu_pct_mean": round(sum(x["cpu_pct_mean"] for x in g) / len(g), 1) if g else None,
             "gitea_psi_cpu_mean": round(sum(x["psi_cpu_some_mean"] for x in g) / len(g), 1) if g else None,
             "gitea_mem_peak_mb": max(x["mem_peak_mb"] for x in g) if g else None,

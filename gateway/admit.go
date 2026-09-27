@@ -43,6 +43,14 @@ func newAdmitter(mode string) admitter {
 		n, m := envInt("ANON_N", 2), envInt("COOKIE_M", 4)
 		log.Printf("anon-cap anon N=%d cookie M=%d", n, m)
 		return anonCap{anon: newFifoSem(n), cookie: newFifoSem(m)}
+	case "fq-cost", "fq-cost-probation":
+		var probation time.Duration
+		if mode == "fq-cost-probation" {
+			probation = time.Duration(envInt("PROBATION_S", 600)) * time.Second
+		}
+		q := newFairQueue(envInt("FQ_SLOTS", 4), probation)
+		log.Printf("%s slots=%d probation=%s", mode, q.free, probation)
+		return q
 	}
 	log.Fatalf("unknown MODE %q", mode)
 	return nil
@@ -61,7 +69,8 @@ type ipLimiter struct {
 	buckets     map[string]*bucket
 }
 
-func (l *ipLimiter) admit(_ context.Context, ip string, _ bool) (func(), int) {
+func (l *ipLimiter) admit(_ context.Context, ri reqInfo) (func(time.Duration), int, string) {
+	ip := ri.ip
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -73,10 +82,10 @@ func (l *ipLimiter) admit(_ context.Context, ip string, _ bool) (func(), int) {
 	b.tokens = min(l.burst, b.tokens+now.Sub(b.last).Seconds()*l.rate)
 	b.last = now
 	if b.tokens < 1 {
-		return nil, 429
+		return nil, 429, ""
 	}
 	b.tokens--
-	return func() {}, 0
+	return noop, 0, ""
 }
 
 // evictLoop drops buckets idle long enough to be full again (rotating IPs would grow the map forever).
@@ -153,25 +162,27 @@ func (s *fifoSem) releaseLocked() {
 	s.free++
 }
 
-func (s *fifoSem) admit(ctx context.Context) (func(), int) {
+func (s *fifoSem) admit(ctx context.Context) (func(time.Duration), int, string) {
 	if st := s.acquire(ctx); st != 0 {
-		return nil, st
+		return nil, st, ""
 	}
-	return s.release, 0
+	return func(time.Duration) { s.release() }, 0, ""
 }
 
 // --- global-cap: all requests share N slots ---
 
 type globalCap struct{ sem *fifoSem }
 
-func (g globalCap) admit(ctx context.Context, _ string, _ bool) (func(), int) { return g.sem.admit(ctx) }
+func (g globalCap) admit(ctx context.Context, _ reqInfo) (func(time.Duration), int, string) {
+	return g.sem.admit(ctx)
+}
 
 // --- anon-cap: cookieless requests share N slots, cookie holders get their own M ---
 
 type anonCap struct{ anon, cookie *fifoSem }
 
-func (a anonCap) admit(ctx context.Context, _ string, cookie bool) (func(), int) {
-	if cookie {
+func (a anonCap) admit(ctx context.Context, ri reqInfo) (func(time.Duration), int, string) {
+	if ri.session != "" {
 		return a.cookie.admit(ctx)
 	}
 	return a.anon.admit(ctx)

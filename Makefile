@@ -1,7 +1,7 @@
 DC := docker compose
 TOOLS := $(DC) --profile tools run --rm tools
 
-.PHONY: up admin seed urlpool cost stage1 s0 s1-sweep stage4 stage5 aggregate figures down clean
+.PHONY: up admin seed urlpool cost stage1 s0 s1-sweep stage4 stage5 stage7 aggregate figures down clean
 
 up:
 	$(DC) up -d gitea
@@ -42,6 +42,11 @@ stage5:
 	sh scripts/stage5.sh
 	$(MAKE) aggregate figures
 	python3 analysis/scenario_table.py
+
+stage7:
+	sh scripts/stage7.sh
+	$(MAKE) aggregate figures
+	python3 analysis/fq_table.py
 
 figures:
 	docker compose --profile tools run --rm analysis python analysis/plots.py all

@@ -51,6 +51,9 @@ def slot_occupancy(meta, glog, is_human, w0, w1):
     elif mode == "global-cap":
         pool_of = lambda e: "global"
         cap = {"global": gp.get("global_n")}
+    elif mode.startswith("fq-"):
+        pool_of = lambda e: "fq"
+        cap = {"fq": gp.get("fq_slots")}
     else:
         return None
     win = w1 - w0
@@ -81,6 +84,41 @@ def slot_occupancy(meta, glog, is_human, w0, w1):
             "human_requests": len(waits[p]["human"]), "crawler_requests": len(waits[p]["crawler"]),
         }
     return out
+
+
+def principal_costs(glog, is_human, w0, w1):
+    """Upstream time consumed per scheduling principal (fq modes), measure window.
+
+    A principal is 'human' if all its requests came from the human IP range.
+    Also reports per-session cost, since under probation many sessions share
+    one principal ("new").
+    """
+    ev = [e for e in glog if e.get("principal") and w0 <= e["ts"] / 1000 < w1]
+    if not ev:
+        return None
+    by_p, by_s = {}, {}
+    for e in ev:
+        d = by_p.setdefault(e["principal"], {"requests": 0, "cost_s": 0.0, "human": True})
+        d["requests"] += 1
+        d["cost_s"] += e["upstream_ms"] / 1000
+        d["human"] &= is_human(e)
+        if e.get("sess"):
+            s = by_s.setdefault(e["sess"], {"cost_s": 0.0, "human": is_human(e)})
+            s["cost_s"] += e["upstream_ms"] / 1000
+    total = sum(d["cost_s"] for d in by_p.values()) or 1
+    hum = [d for d in by_p.values() if d["human"]]
+    top = sorted(by_p.items(), key=lambda kv: -kv[1]["cost_s"])[:5]
+    crawler_sess = [s["cost_s"] for s in by_s.values() if not s["human"]]
+    return {
+        "principals": len(by_p), "human_principals": len(hum),
+        "human_cost_s": round(sum(d["cost_s"] for d in hum), 1),
+        "crawler_cost_s": round(sum(d["cost_s"] for d in by_p.values() if not d["human"]), 1),
+        "human_cost_per_principal_s": round(sum(d["cost_s"] for d in hum) / len(hum), 2) if hum else None,
+        "top": [{"principal": p, "class": "human" if d["human"] else "crawler", "requests": d["requests"],
+                 "cost_s": round(d["cost_s"], 1), "share": round(d["cost_s"] / total, 3)} for p, d in top],
+        "crawler_sessions": len(crawler_sess),
+        "crawler_cost_per_session_s": round(sum(crawler_sess) / len(crawler_sess), 2) if crawler_sess else None,
+    }
 
 
 def main(run_dir):
@@ -137,6 +175,9 @@ def main(run_dir):
     occ = slot_occupancy(meta, glog, is_human, w0, w1)
     if occ:
         out["slot_occupancy"] = occ
+    pc = principal_costs(glog, is_human, w0, w1)
+    if pc:
+        out["principal_costs"] = pc
     ccsv = os.path.join(run_dir, "raw", "crawler.csv")
     if os.path.exists(ccsv):
         cr = [r for r in csv.DictReader(open(ccsv)) if w0 <= float(r["start_wall"]) < w1]

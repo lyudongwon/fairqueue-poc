@@ -9,7 +9,7 @@ import (
 
 func TestFifoSemOrderAndCap(t *testing.T) {
 	s := newFifoSem(1) // one slot => grants are strictly serialized
-	r1, _ := s.admit(context.Background())
+	r1, _, _ := s.admit(context.Background())
 	var mu sync.Mutex
 	var order []int
 	var wg sync.WaitGroup
@@ -17,7 +17,7 @@ func TestFifoSemOrderAndCap(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			rel, st := s.admit(context.Background())
+			rel, st, _ := s.admit(context.Background())
 			if st != 0 {
 				t.Errorf("unexpected status %d", st)
 				return
@@ -25,11 +25,11 @@ func TestFifoSemOrderAndCap(t *testing.T) {
 			mu.Lock()
 			order = append(order, i)
 			mu.Unlock()
-			rel()
+			rel(0)
 		}(i)
 		time.Sleep(5 * time.Millisecond) // enqueue in order
 	}
-	r1()
+	r1(0)
 	wg.Wait()
 	for i, v := range order {
 		if v != i {
@@ -43,13 +43,13 @@ func TestFifoSemOrderAndCap(t *testing.T) {
 
 func TestFifoSemCancel(t *testing.T) {
 	s := newFifoSem(1)
-	rel, _ := s.admit(context.Background())
+	rel, _, _ := s.admit(context.Background())
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, st := s.admit(ctx); st != 499 {
+	if _, st, _ := s.admit(ctx); st != 499 {
 		t.Fatalf("status %d want 499", st)
 	}
-	rel()
+	rel(0)
 	if s.free != 1 || s.q.Len() != 0 {
 		t.Fatalf("free=%d q=%d", s.free, s.q.Len())
 	}
@@ -59,14 +59,14 @@ func TestIPLimiter(t *testing.T) {
 	l := &ipLimiter{rate: 2, burst: 2, buckets: map[string]*bucket{}}
 	ok := 0
 	for i := 0; i < 10; i++ {
-		if _, st := l.admit(context.Background(), "1.2.3.4", false); st == 0 {
+		if _, st, _ := l.admit(context.Background(), reqInfo{ip: "1.2.3.4"}); st == 0 {
 			ok++
 		}
 	}
 	if ok != 2 {
 		t.Fatalf("burst ok=%d want 2", ok)
 	}
-	if _, st := l.admit(context.Background(), "5.6.7.8", false); st != 0 {
+	if _, st, _ := l.admit(context.Background(), reqInfo{ip: "5.6.7.8"}); st != 0 {
 		t.Fatal("other IP limited")
 	}
 }

@@ -55,9 +55,19 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-func hasCookie(r *http.Request) bool {
-	_, err := r.Cookie(sessionCookie)
-	return err == nil
+// sessionOf returns the Gitea session cookie value, or "" if absent.
+func sessionOf(r *http.Request) string {
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
+func short(s string) string {
+	if len(s) > 8 {
+		return s[:8]
+	}
+	return s
 }
 
 // entry is one JSON line per request.
@@ -72,19 +82,36 @@ type entry struct {
 	UpstreamMs float64 `json:"upstream_ms"`
 	Status     int     `json:"status"`
 	NewSession bool    `json:"new_session"`
+	Sess       string  `json:"sess,omitempty"`      // first 8 chars of the session cookie
+	Principal  string  `json:"principal,omitempty"` // scheduling principal (fq modes)
 }
 
 type ctxKey struct{}
 
-// admitter decides whether/when a request may reach Gitea.
-// It returns a release func, or a non-zero status to reject with.
-type admitter interface {
-	admit(ctx context.Context, ip string, cookie bool) (release func(), status int)
+type reqInfo struct {
+	ip      string
+	session string // cookie value, "" if none
 }
+
+// admitter decides whether/when a request may reach Gitea. It returns a
+// release func (called with the request's upstream time), or a non-zero
+// status to reject with, plus the principal it scheduled the request as.
+type admitter interface {
+	admit(ctx context.Context, ri reqInfo) (release func(time.Duration), status int, principal string)
+}
+
+// registrar is implemented by admitters that accept pre-aged sessions (/seen).
+type registrar interface {
+	register(session string, age time.Duration)
+}
+
+func noop(time.Duration) {}
 
 type passThrough struct{}
 
-func (passThrough) admit(context.Context, string, bool) (func(), int) { return func() {}, 0 }
+func (passThrough) admit(context.Context, reqInfo) (func(time.Duration), int, string) {
+	return noop, 0, ""
+}
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
@@ -117,9 +144,11 @@ func main() {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		arrival := time.Now()
-		e := entry{TS: arrival.UnixMilli(), Mode: mode, Cookie: hasCookie(r), Route: routeOf(r.URL.Path), IP: clientIP(r)}
+		sess := sessionOf(r)
+		e := entry{TS: arrival.UnixMilli(), Mode: mode, Cookie: sess != "", Route: routeOf(r.URL.Path), IP: clientIP(r), Sess: short(sess)}
 		rw := &statusWriter{ResponseWriter: w, status: 200}
-		release, reject := adm.admit(r.Context(), e.IP, e.Cookie)
+		release, reject, principal := adm.admit(r.Context(), reqInfo{ip: e.IP, session: sess})
+		e.Principal = principal
 		e.WaitMs = ms(time.Since(arrival))
 		if reject != 0 {
 			if reject == 429 || reject == 503 {
@@ -129,13 +158,16 @@ func main() {
 		} else {
 			st := &reqState{start: time.Now()}
 			proxy.ServeHTTP(rw, r.WithContext(context.WithValue(r.Context(), ctxKey{}, st)))
-			release()
+			release(time.Since(st.start))
 			e.UpstreamMs, e.TTFBMs, e.NewSession = ms(time.Since(st.start)), ms(st.ttfb), st.newSession
 		}
 		e.Status = rw.status
 		logs <- e
 	})
 
+	if reg, ok := adm.(registrar); ok {
+		go serveAdmin(reg)
+	}
 	srv := &http.Server{Addr: ":8080", Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		sig := make(chan os.Signal, 1)
@@ -151,6 +183,23 @@ func main() {
 	}
 	close(logs)
 	<-done
+}
+
+// serveAdmin exposes POST /seen?session=...&age_s=... on :9090 (compose network
+// only) so the human simulator can register its cookies as long-established.
+func serveAdmin(reg registrar) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /seen", func(w http.ResponseWriter, r *http.Request) {
+		age, err := time.ParseDuration(r.URL.Query().Get("age_s") + "s")
+		sess := r.URL.Query().Get("session")
+		if err != nil || sess == "" {
+			http.Error(w, "need session and age_s", http.StatusBadRequest)
+			return
+		}
+		reg.register(sess, age)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	log.Fatal(http.ListenAndServe(":9090", mux))
 }
 
 type reqState struct {
