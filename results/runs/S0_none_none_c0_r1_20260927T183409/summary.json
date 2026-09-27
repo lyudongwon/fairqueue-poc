@@ -51,6 +51,12 @@
     "new_sessions_total": 10,
     "new_sessions_crawler": 0
   },
+  "human_gateway": {
+    "wait_p50_ms": 0.0,
+    "wait_p95_ms": 0.0,
+    "upstream_p95_ms": 262.5,
+    "cookie_share": 1.0
+  },
   "crawler_ok_rps": 0.0,
   "crawler_work_index": 0.0,
   "gitea": {

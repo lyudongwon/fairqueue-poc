@@ -55,6 +55,12 @@
     "new_sessions_total": 2312,
     "new_sessions_crawler": 2284
   },
+  "human_gateway": {
+    "wait_p50_ms": 0.0,
+    "wait_p95_ms": 0.0,
+    "upstream_p95_ms": 22982.5,
+    "cookie_share": 1.0
+  },
   "crawler_ok_rps": 9.87,
   "crawler_work_index": 1.415,
   "crawler_gateway": {
@@ -78,6 +84,7 @@
       "src": 0.174
     },
     "ok_upstream_p50_ms": 12922.8,
+    "ok_wait_p50_ms": 0.0,
     "sessions_created_measure": 1777
   },
   "crawler_client": {

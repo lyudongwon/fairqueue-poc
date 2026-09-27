@@ -1,0 +1,5 @@
+{"run_id": "S2_ratelimit-ip_rotating_c50_r3_20260927T202408", "scenario": "S2", "rep": 3, "mode": "ratelimit-ip", "crawler": "rotating",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 3,
+ "git": "62788e0",
+ "started": "2026-09-27T11:24:08Z", "ended": "2026-09-27T11:27:49Z", "status": "ok"}

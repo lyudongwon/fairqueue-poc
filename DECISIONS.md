@@ -53,8 +53,15 @@ The spec's "heavy path candidates" are 4 types. The 2 human-only types (home, sr
 
 ## Stage 3 → 4 choices
 - S1 is 1 rep at C = 2/5/10/100/200 and 3 reps at C = 50. C=50 is the comparison point for everything after it.
-- **Crawler concurrency is fixed at C = 50 for S2–S6.** C=50 is the S1 throughput knee (work index +9 % from 10→50, +1 % from 50→100). Gitea memory there peaks at 47 % of the limit, so a memory bottleneck does not confound Q2/Q3. C=200 hit 96 %.
-- Degradation onset: the first C where human p95 ≥ 1.5× S0. See the README stage 3 table.
+- **Crawler concurrency is fixed at C = 50 for S2–S6.**
+  - The first 1-rep sweep (C = 10…200) put the work-index knee at C=50. That rationale was **revised after adding C=2/5 and C=50 r2/r3**.
+    - Gitea CPU is already saturated at C=2 (185 %).
+    - The work index gains +13 % from 2→5, +3.5 % from 5→10 and +9 % from 10→50 (median of 3). So the knee is at C≈5–10, and C=50 sits well past saturation.
+  - C=50 was kept, because the stage 4 runs had already started with it and it remains a sound comparison point:
+    - It is a saturating load with 3 reps at the baseline.
+    - Gitea memory peaks at 44–47 % of the limit, so a memory bottleneck does not confound Q2/Q3 (C=200 hit 96 %).
+    - The DECISIONS edit was deferred until the runs finished, so as not to dirty the tree mid-series.
+- Degradation onset: the first C where human p95 ≥ 1.5× S0 is **C=2** (2.2×), the lowest C tested. The spec's 3× line is crossed at C=5 (3.7×). Onset below C=2 is untested.
 
 ## Gateway parameters (stage 4)
 - `ratelimit-ip`: token bucket per XFF IP, **2 req/s, burst 2**, as in the spec. Excess gets 429 with `Retry-After: 1`.

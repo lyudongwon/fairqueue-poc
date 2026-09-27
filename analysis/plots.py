@@ -71,8 +71,9 @@ def fig1():
     ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     ax.set_xlabel("crawler concurrency C (rotating, cookieless)", color=INK2, fontsize=9)
     ax.set_ylabel("human p95 latency (s, log)", color=INK2, fontsize=9)
-    n = max(len(v) for v in by_c.values())
-    ax.set_title(f"S1: human p95 vs crawler concurrency (n={n} rep/C)", color=INK, fontsize=11, loc="left")
+    reps = ", ".join(f"C={c}: {len(by_c[c])}" for c in cs if len(by_c[c]) > 1)
+    note = f"reps — {reps}; others: 1 (line = median)" if reps else "1 rep per C"
+    ax.set_title(f"S1: human p95 vs crawler concurrency\n{note}", color=INK, fontsize=10.5, loc="left")
     fig.tight_layout()
     os.makedirs(OUT, exist_ok=True)
     fig.savefig(os.path.join(OUT, "fig1_s1_human_p95.png"), facecolor=SURFACE)

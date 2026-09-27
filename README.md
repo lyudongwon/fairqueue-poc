@@ -128,31 +128,57 @@ Setup:
 - Gateway `MODE=none`.
 - Crawler is **rotating** (a fresh random XFF per request, outside 10.0.0.0/24) and stores no cookies.
 - URL mix: commit 50 / blame 25 / src 15 / compare 10.
-- C = 10/50/100/200, **1 rep each** (commit `e278cde`).
-- Human load is the same as S0. The table comes from `python analysis/sweep_table.py S1`.
+- C = 2/5/10/50/100/200. **C=50 has 3 reps; every other C has 1.**
+  - Commits: `e278cde` for C = 10/50 r1/100/200, `bc5b6a6` for C = 2/5 and C=50 r2/r3. The difference between them is analysis code only.
+- Human load is the same as S0 (unprimed; see DECISIONS.md).
+- Tables come from `python analysis/sweep_table.py S1`.
 
-| C | human p50 | human p95 | ×S0 | human p99 | human fail | crawler 2xx/s | compare share of 2xx | work index | crawler aborted | gitea CPU mean | CPU PSI | mem peak (of 2 GiB) | sessions (measure) | mem bottleneck | knee |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 10 | 535 ms | **1.90 s** | 6.8 | 3.36 s | 0.0 % | 5.91 | 9.4 % | 1.378 | 5 | 183 % | 26 % | 554 MB (27 %) | 1,064 | no | |
-| 50 | 2.63 s | **6.78 s** | 24.3 | 9.28 s | 0.2 % | 7.43 | 7.3 % | 1.507 | 58 | 183 % | 32 % | 952 MB (47 %) | 1,337 | no | ◀ knee |
-| 100 | 4.65 s | **10.99 s** | 39.4 | 19.14 s | 0.4 % | 8.78 | 5.2 % | 1.526 | 157 | 184 % | 37 % | 1,371 MB (67 %) | 1,581 | no | plateau |
-| 200 | 11.72 s | **23.41 s** | 84.0 | 29.99 s† | 0.5 % | 9.87 | 3.3 % | 1.415 | 333 | 184 % | 40 % | **1,972 MB (96 %)** | 1,777 | **yes** | ↓ declining |
+Per C (median of reps):
+
+| C | reps | human p95 | ×S0 | crawler 2xx/s | work index | gitea CPU mean | mem peak | marks |
+|---|---|---|---|---|---|---|---|---|
+| 2 | 1 | 613 ms | 2.2 | 4.71 | 1.183 | 185 % | 347 MB | degradation onset (≥ 1.5×S0) |
+| 5 | 1 | 1.03 s | 3.7 | 5.51 | 1.331 | 182 % | 411 MB | |
+| 10 | 1 | 1.90 s | 6.8 | 5.91 | 1.378 | 183 % | 554 MB | ◀ throughput knee |
+| 50 | 3 | 6.78 s | 24.3 | 7.43 | 1.507 | 183 % | 952 MB | plateau |
+| 100 | 1 | 10.99 s | 39.4 | 8.78 | 1.526 | 184 % | 1,371 MB | plateau |
+| 200 | 1 | 23.41 s | 84.0 | 9.87 | 1.415 | 184 % | **1,972 MB (96 %)** | ↓ work declining, **memory bottleneck** |
+
+Per run:
+
+| C | rep | human p50 | human p95 | human p99 | human fail | crawler 2xx/s | compare share of 2xx | work index | crawler aborted | CPU PSI | mem peak (of 2 GiB) | sessions (measure) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2 | 1 | 140 ms | 613 ms | 1.20 s | 0 % | 4.71 | 10.6 % | 1.183 | 2 | 16 % | 347 MB (17 %) | 847 |
+| 5 | 1 | 304 ms | 1.03 s | 2.21 s | 0 % | 5.51 | 10.0 % | 1.331 | 4 | 23 % | 411 MB (20 %) | 991 |
+| 10 | 1 | 535 ms | 1.90 s | 3.36 s | 0 % | 5.91 | 9.4 % | 1.378 | 5 | 26 % | 554 MB (27 %) | 1,064 |
+| 50 | 1 | 2.63 s | 6.78 s | 9.28 s | 0.2 % | 7.43 | 7.3 % | 1.507 | 58 | 32 % | 952 MB (47 %) | 1,337 |
+| 50 | 2 | 2.19 s | 6.61 s | 13.71 s | 0.4 % | 7.92 | 7.6 % | 1.646 | 72 | 30 % | 926 MB (45 %) | 1,425 |
+| 50 | 3 | 2.42 s | 7.00 s | 10.65 s | 0 % | 7.31 | 7.0 % | 1.443 | 63 | 31 % | 895 MB (44 %) | 1,315 |
+| 100 | 1 | 4.65 s | 10.99 s | 19.14 s | 0.4 % | 8.78 | 5.2 % | 1.526 | 157 | 37 % | 1,371 MB (67 %) | 1,581 |
+| 200 | 1 | 11.72 s | 23.41 s | 29.99 s† | 0.5 % | 9.87 | 3.3 % | 1.415 | 333 | 40 % | 1,972 MB (96 %) | 1,777 |
+
+S1 at C=50, pooled over 3 reps: human p95 **6.83 s (24.5× S0)**. The per-rep p95s are 6.78 / 6.61 / 7.00 s.
 
 † At or near the 30 s client timeout. Human latencies are right-censored at 30 s, so p99 at C=200 is a lower bound.
 
 ![fig1](results/figures/fig1_s1_human_p95.png)
 
 ### Q1 verdict: **reproduced**
-Human p95 is 6.8× S0 already at C=10 and 84× at C=200. That is far above the 3× threshold (836 ms), so the judgement does not hinge on rep-to-rep noise. Failures stay low (≤ 0.5 %, all 30 s timeouts): humans are not refused, they wait.
+- Even at the lowest C tested (C=2), human p95 is 2.2× S0.
+- The spec's 3× threshold (836 ms) is crossed from C=5 (3.7×) onward, and C=200 reaches 84×.
+- At C=50, the three reps agree within ±3 %.
+- Failures stay low (≤ 0.5 %, all 30 s timeouts): humans are not refused, they wait.
 
 ### Where throughput bends
-- **CPU saturates already at C=10.** Gitea runs at 183–184 % of its 200 % limit at every C. CPU PSI "some" rises from 26 % to 40 %, meaning tasks increasingly wait for CPU.
-- **Raw crawler 2xx/s keeps rising (5.9 → 9.9), but that is mix shift, not extra capacity.**
+- **CPU saturates already at C=2.** Gitea runs at 182–185 % of its 200 % limit at every C. CPU PSI "some" rises from 16 % to 40 %, meaning tasks increasingly wait for CPU.
+- **Raw crawler 2xx/s keeps rising (4.7 → 9.9), but that is mix shift, not extra capacity.**
   - Under overload the most expensive requests (compare, ~47× a commits page) hit the crawler's 30 s timeout first.
-  - compare falls from 9.4 % to 3.3 % of successes, and cheap requests fill the freed slots.
+  - compare falls from 10.6 % to 3.3 % of successes, and cheap requests fill the freed slots.
 - **The work index is the better measure.** It weights each success by its stage-1 unit cost, giving seconds of Gitea work per second.
-  - It gains +9 % from C=10 to C=50 (the knee), +1 % from 50 to 100, then **drops 7 %** at C=200.
-  - Beyond C≈50, extra concurrency buys no work. It only adds queueing delay for humans and wasted work on aborted requests (333 aborted at C=200).
+  - Gains between successive C values: +13 % (2→5), +3.5 % (5→10), +9 % (10→50, median), +1 % (50→100), −7 % (100→200).
+  - By the < 10 % rule, the **knee is at C≈10**.
+  - Beyond it, extra concurrency buys little or no work. It adds queueing delay for humans and wasted work on aborted requests (333 aborted at C=200).
+  - The first 1-rep sweep without C=2/5 had put the knee at C=50. See DECISIONS.md.
 
 ### Memory and sessions
 - **Memory tracks in-flight concurrency, not accumulated sessions.**
@@ -165,6 +191,69 @@ Human p95 is 6.8× S0 already at C=10 and 84× at C=200. That is far above the 3
   - The work-index drop at C=200 should therefore not be attributed to CPU alone.
   - **Results at C=200 must be read as a combined CPU and memory limit.** C ≤ 100 is CPU-bound only.
 
+## Stage 4 — simple defences (S2–S4) → Q2
+
+Setup:
+- Crawler C = 50, 3 reps per scenario, commit `62788e0`.
+- Human load is as in S0, but users are **primed returning visitors**: each holds its session cookie before t0 (DECISIONS.md).
+- Gateway parameters (rationale in DECISIONS.md):
+  - `ratelimit-ip`: 2 req/s per IP, burst 2
+  - `global-cap`: N = 4
+  - `anon-cap`: anonymous N = 2, cookie M = 4
+- All FIFO waits are capped at 30 s. Crawlers back off 1 s on 429/503.
+- Tables come from `python analysis/scenario_table.py`.
+
+| scenario | human p50 | human p95 | ×S0 | human p99 | human fail | p95 per rep | human gw wait p95 | crawler 2xx/s | work index (vs S1) | gitea CPU | mem peak |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| S0 (no crawler) | 46 ms | **279 ms** | 1.00 | 662 ms | 0 % | 271 / 267 / 299 | 0 | – | – | 27 % | 233 MB |
+| S1 none / rotating | 2.42 s | **6.83 s** | 24.5 | 10.86 s | 0.2 % | 6784 / 6609 / 7000 | 0 | 7.55 | 1.53 (100 %) | 183 % | 952 MB |
+| S2 ratelimit-ip / naive | 63 ms | **404 ms** | 1.45 | 987 ms | **1.4 % (429)** | 407 / 393 / 401 | 0 | 1.98 | 0.48 (31 %) | 95 % | 351 MB |
+| S2 ratelimit-ip / rotating | 2.24 s | **6.45 s** | 23.1 | 11.03 s | **1.6 % (429)** | 6610 / 6232 / 6292 | 0 | 7.81 | 1.61 (105 %) | 183 % | 1,000 MB |
+| S3 global-cap / rotating | 9.31 s | **12.18 s** | 43.7 | 13.45 s | 0 % | 12640 / 12003 / 11937 | 12.4 s | 4.91 | 1.18 (77 %) | 185 % | 456 MB |
+| S4 anon-cap / rotating | 140 ms | **596 ms** | **2.14** | 1.39 s | 0 % | 563 / 561 / 647 | 0 | 4.47 | 1.06 (69 %) | 186 % | 386 MB |
+
+No run in stage 4 hit the memory-bottleneck rule. The maximum was 49 % of the limit.
+
+![fig2](results/figures/fig2_scenario_human_p95.png)
+![fig3](results/figures/fig3_scenario_crawler_throughput.png)
+
+### S2: the per-IP rate limit
+- **Against a fixed IP (naive) it works.**
+  - Human p95 drops to 404 ms (1.45×).
+  - The crawler is held to ≈ 2 successful req/s. It gets about 8,800 429s per run and 31 % of S1's work.
+- **Against rotating IPs it does nothing.** Human p95 is 6.45 s (23×), and the crawler keeps 105 % of its S1 work, because every request comes from a fresh IP.
+- **It also rejects humans: 1.4–1.6 % of human requests got 429.**
+  - Each human averages only ≈ 0.3 req/s. Open-loop (Poisson) arrivals nonetheless occasionally put 3 requests from one user inside a second, which empties a burst-2 bucket.
+  - A real browser, which fetches assets in bursts, would be hit harder.
+
+### S3: global cap (N=4, one shared FIFO)
+- **It is worse for humans than doing nothing:** p95 12.2 s vs 6.8 s.
+  - Human requests wait in the same FIFO as ~46 queued crawler requests (gateway wait p95 12.4 s).
+  - Once admitted, they are fast: upstream p95 is ~0.6 s.
+- The cap protects Gitea itself. Memory is 456 MB vs 952 MB, and CPU stays saturated (185 %), so N=4 did not starve it.
+- Crawler work falls to 77 % of S1 at equal CPU. This run design does not isolate why.
+
+### S4: anonymous cap (anon N=2, cookie M=4)
+- **Human p95 falls from 6.83 s to 0.60 s** (24.5× → 2.14× S0), with 0 human failures. The three reps agree (561–647 ms).
+- Humans wait **0 ms** at the gateway (p95), because they never share a queue with crawlers.
+  - The remaining excess over S0 is inside Gitea: two crawler requests are always in flight on its 2 cores.
+  - CPU stays at 186 % and CPU PSI at ~16 %, vs 1.3 % in S0.
+  - Human `commit` p95 is 1.1–1.5 s vs ~0.5 s in S0: heavy human pages compete for the same CPU.
+- Crawlers are **throttled, not blocked**.
+  - 0 × 503. Every crawler request is eventually served after a gateway wait of p50 ≈ 9.7–10.3 s.
+  - Crawlers keep 59 % of S1's 2xx/s and **69 % of its work index**.
+
+### Q2 verdict
+**By the spec's criterion (S4 human p95 ≤ 1.5× S0 = 418 ms), Q2 is not met.** S4 reached 596 ms (2.14×) in all three reps (≥ 2.0× each).
+
+Relative to the unprotected case, the simple cookieless cap removes **~95 % of the excess human p95** ((6825 − 596) / (6825 − 279)). It does so without refusing any crawler request, while keeping ~69 % of crawler work. None of the other simple defences comes close:
+- The IP rate limit fails against rotation and hurts humans.
+- The global cap makes humans wait behind crawlers.
+
+The residual 2× is CPU contention inside Gitea from the crawlers' two in-flight slots, not queueing. A smaller anon N (1) would likely trade crawler throughput for human latency, but that is **untested**.
+
+The spec's reading: if the simple fix largely works, Q3 decides the case. Here it largely works, though not to the 1.5× line. **Q3 (cookie-keeper / cookie-farm through the cookie pool) is therefore the deciding experiment.**
+
 ## Known limitations
 
 - `X-Forwarded-For` only simulates IP rotation. The requests do not come from different network paths.
@@ -173,4 +262,6 @@ Human p95 is 6.8× S0 already at C=10 and 84× at C=200. That is far above the 3
 - Cookie presence is judged by the cookie name only. A fabricated `i_like_gitea` value would pass.
 - Human latency is right-censored by the 30 s client timeout. Percentiles near 30 s are lower bounds.
 - The work index uses unloaded single-request medians as unit costs. It is an estimate of work done, not a measured CPU-time split.
+- S0/S1 humans were unprimed (cookie obtained on the first request), while S2 onward are primed. The measure windows are comparable: every S0/S1 user had its cookie within the warmup.
+- Stage 4 used a single parameter set per mode (no N/M sweep). The Q2 verdict holds for anon N=2 / M=4 only.
 - The session provider is memory. Every cookieless request creates a server-side session that lives 24 h, so a cookieless crawler also grows Gitea's heap.

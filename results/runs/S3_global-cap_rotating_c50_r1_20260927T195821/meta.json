@@ -1,0 +1,5 @@
+{"run_id": "S3_global-cap_rotating_c50_r1_20260927T195821", "scenario": "S3", "rep": 1, "mode": "global-cap", "crawler": "rotating",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 1,
+ "git": "62788e0",
+ "started": "2026-09-27T10:58:21Z", "ended": "2026-09-27T11:02:01Z", "status": "ok"}
