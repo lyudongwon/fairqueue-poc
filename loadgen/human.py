@@ -4,6 +4,7 @@ Arrivals are a Poisson process (RATE req/s total) scheduled up front, so a slow
 response never delays the next send (no coordinated omission). Each arrival is
 assigned to one of USERS virtual users; each user keeps its own cookie jar and
 fixed X-Forwarded-For, and walks home -> src -> commits -> commit in a cycle.
+Users are returning visitors: each gets its session cookie before t0 (prime()).
 Latency is measured from the *scheduled* send time.
 """
 import asyncio
@@ -23,6 +24,7 @@ WARMUP = float(os.environ.get("WARMUP", "30"))
 DURATION = float(os.environ.get("DURATION", "180"))
 TIMEOUT = float(os.environ.get("HUMAN_TIMEOUT", "30"))
 SEED = int(os.environ.get("SEED", "1"))
+PRIME_URL = os.environ.get("PRIME_URL", "http://gitea:3000/")  # "" disables priming
 CYCLE = ["home", "src", "commits", "commit"]
 WALL_OFFSET = time.time() - time.monotonic()
 
@@ -70,10 +72,29 @@ async def fire(user, route, url, sched, t0, rows):
     })
 
 
+async def prime(users):
+    """Give each user a session cookie before t0 (returning visitors).
+
+    Fetched straight from Gitea, not via the gateway, so the cookie is obtained
+    the same way in every mode and never queues behind crawlers in anon-cap.
+    """
+    host = httpx.URL(BASE).host
+    async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+        for u in users:
+            c.cookies.clear()
+            r = await c.get(PRIME_URL)
+            val = r.cookies.get("i_like_gitea")
+            if not val:
+                raise SystemExit(f"priming failed for user {u.idx + 1}: status {r.status_code}")
+            u.client.cookies.set("i_like_gitea", val, domain=host)
+
+
 async def main():
     rng = random.Random(SEED)
     pools = {k: load(k) for k in ("home", "src", "commits", "commit")}
     users = [User(i, random.Random(SEED * 1000 + i), pools) for i in range(USERS)]
+    if PRIME_URL:
+        await prime(users)
     total = WARMUP + DURATION
     t0 = time.monotonic() + 0.5
     rows, tasks, t = [], [], 0.0

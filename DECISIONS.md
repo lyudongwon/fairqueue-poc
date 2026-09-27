@@ -77,6 +77,11 @@ The spec's "heavy path candidates" are 4 types. The 2 human-only types (home, sr
 - The human simulator is **open-loop**: Poisson arrivals at about 3 req/s in total, so the send schedule does not depend on responses. This avoids coordinated omission. The spec's closed-loop design (10 users, 2–5 s think time) is replaced.
   - There are still 10 virtual users, each with its own cookie jar and its own fixed XFF (`10.0.0.1`–`10.0.0.10`).
   - Each arrival goes to a random user and advances that user's home → src → commits → commit cycle.
+- **Humans are returning visitors (from stage 4 on):** before t0, each user fetches `http://gitea:3000/` directly (bypassing the gateway) and stores its `i_like_gitea` cookie. Every measured human request therefore carries a cookie.
+  - Found in the stage 4 smoke test: without priming, a user's open-loop requests stay cookieless until its first response returns. In anon-cap those first requests queue behind crawlers in the anon pool, so only 61 % of human requests carried a cookie. A 503 there (no Set-Cookie) left the user cookieless indefinitely.
+  - That is a cold-start artifact, not the phenomenon under test.
+  - S0/S1 (unprimed) are unaffected in the measure window: every user had its cookie within the first seconds of warmup, and S0 sessions = 10.
+  - Priming creates the same 10 sessions, just earlier.
 - Crawler URL mix: **commit 50 % / blame 25 % / src 15 % / compare 10 %**, weighted random per request. Each type's pool is shuffled per run and consumed without replacement.
   - A link-following crawler reaches commit pages most often, because every commits-list page links 50 commits.
   - blame links sit on every file view.
