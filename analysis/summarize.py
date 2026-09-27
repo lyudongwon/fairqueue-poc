@@ -10,6 +10,10 @@ import os
 import sys
 
 MEM_NEAR_LIMIT = 0.90   # memory.current / memory.max
+# Stage-1 pooled median single-request cost (ms). Weighting successes by this
+# gives an estimated "work done" index that is not fooled by mix shift (heavy
+# requests timing out first makes raw 2xx/s look better than it is).
+UNIT_COST_MS = {"home": 12.4, "src": 32.1, "commits": 32.5, "commit": 82.7, "blame": 163.4, "compare": 1543.8}
 PSI_MEM_SIGNIFICANT = 5  # % of wall time stalled on memory
 
 
@@ -61,6 +65,7 @@ def main(run_dir):
     cw = [e for e in glog if not is_human(e) and e["route"] != "other" and w0 <= e["ts"] / 1000 < w1]
     crawl_ok = [e for e in cw if e["status"] == 200]
     out["crawler_ok_rps"] = round(len(crawl_ok) / dur, 2)
+    out["crawler_work_index"] = round(sum(UNIT_COST_MS[e["route"]] for e in crawl_ok) / 1000 / dur, 3)
     if cw:
         out["crawler_gateway"] = {
             "requests_measure": len(cw),
@@ -69,6 +74,8 @@ def main(run_dir):
             "distinct_ips": len({e["ip"] for e in cw}),
             "route_share": {rt: round(sum(1 for e in cw if e["route"] == rt) / len(cw), 3)
                             for rt in sorted({e["route"] for e in cw})},
+            "ok_route_share": {rt: round(sum(1 for e in crawl_ok if e["route"] == rt) / len(crawl_ok), 3)
+                               for rt in sorted({e["route"] for e in crawl_ok})} if crawl_ok else {},
             "ok_upstream_p50_ms": pct([e["upstream_ms"] for e in crawl_ok], .5),
             "sessions_created_measure": sum(1 for e in cw if e["new_session"]),
         }

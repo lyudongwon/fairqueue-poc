@@ -122,10 +122,55 @@ Sanity checks:
 
 **Q1 threshold derived from S0:** S1 counts as a success when human p95 ≥ 3 × 278.8 ≈ **836 ms**.
 
+## Stage 3 — crawler load, no protection (S1) → Q1
+
+Setup:
+- Gateway `MODE=none`.
+- Crawler is **rotating** (a fresh random XFF per request, outside 10.0.0.0/24) and stores no cookies.
+- URL mix: commit 50 / blame 25 / src 15 / compare 10.
+- C = 10/50/100/200, **1 rep each** (commit `e278cde`).
+- Human load is the same as S0. The table comes from `python analysis/sweep_table.py S1`.
+
+| C | human p50 | human p95 | ×S0 | human p99 | human fail | crawler 2xx/s | compare share of 2xx | work index | crawler aborted | gitea CPU mean | CPU PSI | mem peak (of 2 GiB) | sessions (measure) | mem bottleneck | knee |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 10 | 535 ms | **1.90 s** | 6.8 | 3.36 s | 0.0 % | 5.91 | 9.4 % | 1.378 | 5 | 183 % | 26 % | 554 MB (27 %) | 1,064 | no | |
+| 50 | 2.63 s | **6.78 s** | 24.3 | 9.28 s | 0.2 % | 7.43 | 7.3 % | 1.507 | 58 | 183 % | 32 % | 952 MB (47 %) | 1,337 | no | ◀ knee |
+| 100 | 4.65 s | **10.99 s** | 39.4 | 19.14 s | 0.4 % | 8.78 | 5.2 % | 1.526 | 157 | 184 % | 37 % | 1,371 MB (67 %) | 1,581 | no | plateau |
+| 200 | 11.72 s | **23.41 s** | 84.0 | 29.99 s† | 0.5 % | 9.87 | 3.3 % | 1.415 | 333 | 184 % | 40 % | **1,972 MB (96 %)** | 1,777 | **yes** | ↓ declining |
+
+† At or near the 30 s client timeout. Human latencies are right-censored at 30 s, so p99 at C=200 is a lower bound.
+
+![fig1](results/figures/fig1_s1_human_p95.png)
+
+### Q1 verdict: **reproduced**
+Human p95 is 6.8× S0 already at C=10 and 84× at C=200. That is far above the 3× threshold (836 ms), so the judgement does not hinge on rep-to-rep noise. Failures stay low (≤ 0.5 %, all 30 s timeouts): humans are not refused, they wait.
+
+### Where throughput bends
+- **CPU saturates already at C=10.** Gitea runs at 183–184 % of its 200 % limit at every C. CPU PSI "some" rises from 26 % to 40 %, meaning tasks increasingly wait for CPU.
+- **Raw crawler 2xx/s keeps rising (5.9 → 9.9), but that is mix shift, not extra capacity.**
+  - Under overload the most expensive requests (compare, ~47× a commits page) hit the crawler's 30 s timeout first.
+  - compare falls from 9.4 % to 3.3 % of successes, and cheap requests fill the freed slots.
+- **The work index is the better measure.** It weights each success by its stage-1 unit cost, giving seconds of Gitea work per second.
+  - It gains +9 % from C=10 to C=50 (the knee), +1 % from 50 to 100, then **drops 7 %** at C=200.
+  - Beyond C≈50, extra concurrency buys no work. It only adds queueing delay for humans and wasted work on aborted requests (333 aborted at C=200).
+
+### Memory and sessions
+- **Memory tracks in-flight concurrency, not accumulated sessions.**
+  - At C=10, Gitea sits at 300–380 MB the whole run while sessions grow 92 → 1,283.
+  - At every C, memory drops as soon as load stops.
+  - Peak memory scales with C: 554 → 952 → 1,371 → 1,972 MB.
+- Sessions: every successful cookieless crawler response creates one memory session (sessions in the window ≈ crawler 2xx count). This amounts to ~2,300 sessions per run at C=200, with no visible memory cost at this scale.
+- **C=200 is memory-bound as well as CPU-bound.** Peak memory.current reached **96.3 % of the 2 GiB limit**, which triggers the memory-bottleneck rule.
+  - Memory PSI stayed at 0 and `memory.events max`/oom_kill at 0, so no reclaim stall was observed yet. The container was nonetheless at the edge.
+  - The work-index drop at C=200 should therefore not be attributed to CPU alone.
+  - **Results at C=200 must be read as a combined CPU and memory limit.** C ≤ 100 is CPU-bound only.
+
 ## Known limitations
 
 - `X-Forwarded-For` only simulates IP rotation. The requests do not come from different network paths.
 - Everything runs on a single machine, so network latency is negligible.
 - The human simulator is not a browser. It skips static assets.
 - Cookie presence is judged by the cookie name only. A fabricated `i_like_gitea` value would pass.
+- Human latency is right-censored by the 30 s client timeout. Percentiles near 30 s are lower bounds.
+- The work index uses unloaded single-request medians as unit costs. It is an estimate of work done, not a measured CPU-time split.
 - The session provider is memory. Every cookieless request creates a server-side session that lives 24 h, so a cookieless crawler also grows Gitea's heap.

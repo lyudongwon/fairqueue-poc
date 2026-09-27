@@ -14,6 +14,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 
 OUT = "results/figures"
 BLUE, INK, INK2, GRID, SURFACE = "#2a78d6", "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
@@ -66,6 +67,8 @@ def fig1():
     ax.set_xticks(cs, [str(c) for c in cs])
     ax.minorticks_off()
     ax.set_yscale("log")
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g} s"))
+    ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     ax.set_xlabel("crawler concurrency C (rotating, cookieless)", color=INK2, fontsize=9)
     ax.set_ylabel("human p95 latency (s, log)", color=INK2, fontsize=9)
     n = max(len(v) for v in by_c.values())

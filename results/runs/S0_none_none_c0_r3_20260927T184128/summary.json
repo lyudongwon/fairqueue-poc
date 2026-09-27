@@ -52,6 +52,7 @@
     "new_sessions_crawler": 0
   },
   "crawler_ok_rps": 0.0,
+  "crawler_work_index": 0.0,
   "gitea": {
     "cpu_pct_mean": 27.4,
     "cpu_pct_p95": 98.8,
