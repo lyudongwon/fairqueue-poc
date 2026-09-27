@@ -55,5 +55,15 @@ The spec's "heavy path candidates" are 4 types. The 2 human-only types (home, sr
 - The human simulator is **open-loop**: Poisson arrivals at about 3 req/s in total, so the send schedule does not depend on responses. This avoids coordinated omission. The spec's closed-loop design (10 users, 2–5 s think time) is replaced.
   - There are still 10 virtual users, each with its own cookie jar and its own fixed XFF (`10.0.0.1`–`10.0.0.10`).
   - Each arrival goes to a random user and advances that user's home → src → commits → commit cycle.
+- Crawler URL mix: **commit 50 % / blame 25 % / src 15 % / compare 10 %**, weighted random per request. Each type's pool is shuffled per run and consumed without replacement.
+  - A link-following crawler reaches commit pages most often, because every commits-list page links 50 commits.
+  - blame links sit on every file view.
+  - src is the file views themselves.
+  - compare links are rarer in the UI, but they are the most expensive (~47× a commits page).
+  - This mix is a design assumption, not taken from real crawler logs.
+  - Expected upstream cost per request, from the stage 1 pooled medians: 0.5·83 + 0.25·163 + 0.15·32 + 0.10·1544 ≈ 241 ms. compare is ≈ 64 % of that despite being 10 % of requests.
+  - The commits list is left out of the crawler mix. With only 267 pages it would soon repeat URLs, and it is also the human's page-1 route.
+- S1 uses the **rotating** crawler only. In `MODE=none` the gateway ignores IPs, so naive and rotating look identical to Gitea. naive is used only in S2 (IP rate limit).
+- Crawler workers are closed-loop (C concurrent workers, 30 s timeout). Requests still in flight at the run deadline are cut and recorded as `cut`.
 - naive/rotating crawlers do not store cookies. Each request uses an empty cookie jar and the Cookie header is removed.
 - rotating crawler IPs are drawn at random from outside 10.0.0.0/24, so they never overlap the human IP range.

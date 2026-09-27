@@ -1,7 +1,7 @@
 DC := docker compose
 TOOLS := $(DC) --profile tools run --rm tools
 
-.PHONY: up admin seed urlpool cost stage1 s0 aggregate down clean
+.PHONY: up admin seed urlpool cost stage1 s0 s1-sweep aggregate down clean
 
 up:
 	$(DC) up -d gitea
@@ -27,6 +27,11 @@ stage1: seed urlpool cost
 s0:
 	for r in 1 2 3; do MODE=none CRAWLER=none sh scripts/run.sh S0 $$r; done
 	$(MAKE) aggregate
+
+s1-sweep:
+	for c in 10 50 100 200; do MODE=none CRAWLER=rotating C=$$c sh scripts/run.sh S1 $(or $(REP),1); done
+	$(MAKE) aggregate
+	python3 analysis/sweep_table.py S1
 
 aggregate:
 	python3 analysis/aggregate.py

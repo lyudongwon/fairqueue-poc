@@ -58,9 +58,28 @@ def main(run_dir):
         "new_sessions_crawler": sum(1 for e in glog if e["new_session"] and not is_human(e)),
     }
     dur = meta["duration_s"]
-    crawl_ok = [e for e in glog if not is_human(e) and e["route"] != "other" and e["status"] == 200
-                and w0 <= e["ts"] / 1000 < w1]
+    cw = [e for e in glog if not is_human(e) and e["route"] != "other" and w0 <= e["ts"] / 1000 < w1]
+    crawl_ok = [e for e in cw if e["status"] == 200]
     out["crawler_ok_rps"] = round(len(crawl_ok) / dur, 2)
+    if cw:
+        out["crawler_gateway"] = {
+            "requests_measure": len(cw),
+            "status": {str(s): sum(1 for e in cw if e["status"] == s) for s in sorted({e["status"] for e in cw})},
+            "with_cookie": sum(1 for e in cw if e["cookie"]),
+            "distinct_ips": len({e["ip"] for e in cw}),
+            "route_share": {rt: round(sum(1 for e in cw if e["route"] == rt) / len(cw), 3)
+                            for rt in sorted({e["route"] for e in cw})},
+            "ok_upstream_p50_ms": pct([e["upstream_ms"] for e in crawl_ok], .5),
+            "sessions_created_measure": sum(1 for e in cw if e["new_session"]),
+        }
+    ccsv = os.path.join(run_dir, "raw", "crawler.csv")
+    if os.path.exists(ccsv):
+        cr = [r for r in csv.DictReader(open(ccsv)) if w0 <= float(r["start_wall"]) < w1]
+        out["crawler_client"] = {
+            "requests_measure": len(cr),
+            "ok_rps": round(sum(1 for r in cr if r["status"] == "200") / dur, 2),
+            "status": {s: sum(1 for r in cr if r["status"] == s) for s in sorted({r["status"] for r in cr})},
+        }
 
     # Monitor: gitea resource usage during the measure window.
     mon = [r for r in csv.DictReader(open(os.path.join(run_dir, "monitor.csv"))) if r["container"] == "gitea"]

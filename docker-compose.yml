@@ -56,6 +56,24 @@ services:
       - ./:/app
     profiles: ["run"]
 
+  crawler:
+    build: ./loadgen
+    cpuset: "7-10"
+    working_dir: /app
+    command: python loadgen/crawler.py
+    environment:
+      TARGET: http://gateway:8080
+      POOL: /app/urlpool
+      RUN_DIR: /app/${RUN_DIR:-results/scratch}
+      CRAWLER: ${CRAWLER:-rotating}
+      C: ${C:-10}
+      WARMUP: ${WARMUP:-30}
+      DURATION: ${DURATION:-180}
+      SEED: ${SEED:-1}
+    volumes:
+      - ./:/app
+    profiles: ["run"]
+
   monitor:
     build: ./loadgen
     cpuset: "11"
