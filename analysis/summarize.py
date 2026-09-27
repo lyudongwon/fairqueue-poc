@@ -35,6 +35,54 @@ def lat_stats(rows):
             "fails_by_status": {s: sum(1 for r in fails if r["status"] == s) for s in {r["status"] for r in fails}}}
 
 
+def slot_occupancy(meta, glog, is_human, w0, w1):
+    """Who held the gateway's admission slots during the measure window.
+
+    A request holds a slot from arrival+wait to arrival+wait+upstream. Its pool
+    follows from the mode (anon-cap: cookie -> "cookie" pool else "anon";
+    global-cap: "global"). Slot-seconds are clipped to [w0, w1).
+    share_of_capacity = slot-seconds / (slots x window); share_of_used is the
+    split of occupied slot-seconds between humans and crawlers.
+    """
+    mode, gp = meta["mode"], meta.get("gateway_params", {})
+    if mode == "anon-cap":
+        pool_of = lambda e: "cookie" if e["cookie"] else "anon"
+        cap = {"cookie": gp.get("cookie_m"), "anon": gp.get("anon_n")}
+    elif mode == "global-cap":
+        pool_of = lambda e: "global"
+        cap = {"global": gp.get("global_n")}
+    else:
+        return None
+    win = w1 - w0
+    held = {p: {"human": 0.0, "crawler": 0.0} for p in cap}
+    waits = {p: {"human": [], "crawler": []} for p in cap}
+    for e in glog:
+        if e["route"] == "other" and not is_human(e):
+            continue  # health checks
+        if e["status"] in (429, 503) or (e["status"] == 499 and e["upstream_ms"] == 0):
+            continue  # never admitted
+        who = "human" if is_human(e) else "crawler"
+        p = pool_of(e)
+        s = e["ts"] / 1000 + e["wait_ms"] / 1000
+        t = s + e["upstream_ms"] / 1000
+        held[p][who] += max(0.0, min(t, w1) - max(s, w0))
+        if w0 <= e["ts"] / 1000 < w1:
+            waits[p][who].append(e["wait_ms"])
+    out = {}
+    for p, n in cap.items():
+        used = held[p]["human"] + held[p]["crawler"]
+        out[p] = {
+            "slots": n,
+            "human_share_of_capacity": round(held[p]["human"] / (n * win), 3) if n else None,
+            "crawler_share_of_capacity": round(held[p]["crawler"] / (n * win), 3) if n else None,
+            "crawler_share_of_used": round(held[p]["crawler"] / used, 3) if used else None,
+            "human_wait_p50_ms": pct(waits[p]["human"], .5), "human_wait_p95_ms": pct(waits[p]["human"], .95),
+            "crawler_wait_p50_ms": pct(waits[p]["crawler"], .5), "crawler_wait_p95_ms": pct(waits[p]["crawler"], .95),
+            "human_requests": len(waits[p]["human"]), "crawler_requests": len(waits[p]["crawler"]),
+        }
+    return out
+
+
 def main(run_dir):
     meta = json.load(open(os.path.join(run_dir, "meta.json")))
     t_warm = meta["warmup_s"]
@@ -86,6 +134,9 @@ def main(run_dir):
             "ok_wait_p50_ms": pct([e["wait_ms"] for e in crawl_ok], .5),
             "sessions_created_measure": sum(1 for e in cw if e["new_session"]),
         }
+    occ = slot_occupancy(meta, glog, is_human, w0, w1)
+    if occ:
+        out["slot_occupancy"] = occ
     ccsv = os.path.join(run_dir, "raw", "crawler.csv")
     if os.path.exists(ccsv):
         cr = [r for r in csv.DictReader(open(ccsv)) if w0 <= float(r["start_wall"]) < w1]

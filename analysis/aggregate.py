@@ -14,6 +14,16 @@ from summarize import pct
 OUT = "results/summary.csv"
 
 
+def mean_opt(xs):
+    xs = [x for x in xs if x is not None]
+    return round(sum(xs) / len(xs), 3) if xs else None
+
+
+def max_opt(xs):
+    xs = [x for x in xs if x is not None]
+    return max(xs) if xs else None
+
+
 def main():
     groups = {}
     for d in sorted(glob.glob("results/runs/*/")):
@@ -46,6 +56,14 @@ def main():
             "crawler_work_index": round(sum(s.get("crawler_work_index", 0) for _, _, s in ok) / len(ok), 3) if ok else None,
             "crawler_ok_rps_per_rep": " / ".join(str(s["crawler_ok_rps"]) for _, _, s in ok),
             "human_gw_wait_p95_ms": max((s.get("human_gateway", {}).get("wait_p95_ms") or 0) for _, _, s in ok) if ok else None,
+            "cookie_slot_crawler_share_of_used": mean_opt(
+                [s.get("slot_occupancy", {}).get("cookie", {}).get("crawler_share_of_used") for _, _, s in ok]),
+            "cookie_slot_human_share_of_capacity": mean_opt(
+                [s.get("slot_occupancy", {}).get("cookie", {}).get("human_share_of_capacity") for _, _, s in ok]),
+            "cookie_slot_crawler_share_of_capacity": mean_opt(
+                [s.get("slot_occupancy", {}).get("cookie", {}).get("crawler_share_of_capacity") for _, _, s in ok]),
+            "human_cookie_pool_wait_p95_ms": max_opt(
+                [s.get("slot_occupancy", {}).get("cookie", {}).get("human_wait_p95_ms") for _, _, s in ok]),
             "gitea_cpu_pct_mean": round(sum(x["cpu_pct_mean"] for x in g) / len(g), 1) if g else None,
             "gitea_psi_cpu_mean": round(sum(x["psi_cpu_some_mean"] for x in g) / len(g), 1) if g else None,
             "gitea_mem_peak_mb": max(x["mem_peak_mb"] for x in g) if g else None,

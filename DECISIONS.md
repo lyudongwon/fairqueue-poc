@@ -80,6 +80,24 @@ The spec's "heavy path candidates" are 4 types. The 2 human-only types (home, sr
 - S2 is run with **both** naive (fixed IP: the case the rate limit is designed for) and rotating (the case it is expected to fail).
 - The gateway is 387 lines of Go excluding tests (main.go 209 + admit.go 178), over the spec's 200-line target. The admission policies were kept in a separate file for reuse by FairQueue.
 
+## Stage 5 (Q3)
+- S5/S6 use `anon-cap` with anon N = 2 and cookie M = 4, C = 50, 3 reps each. These are the same parameters as S4, so S4 is the direct baseline.
+- **cookie-keeper**:
+  - Obtains **one** session cookie through the gateway (`GET /poc/redis`) at the start of warmup. That request waits in the anon pool like any first visit.
+  - All 50 workers send that one cookie on every request.
+  - XFF keeps rotating.
+- **cookie-farm**:
+  - Obtains **100** cookies the same way (FARM_SIZE=100, as in the spec), then round-robins them per request.
+  - XFF keeps rotating.
+  - To the gateway, keeper and farm look the same: `anon-cap` only asks "is there a cookie?". The farm case matters for any policy that keys on the session (e.g. per-cookie limits). It is included to show the anon-cap outcome does not depend on how many cookies the crawler holds.
+- Cookies are sent as a fixed `Cookie` header, and the crawler's cookie jar stays disabled.
+- **Slot occupancy** is computed from the gateway log (`analysis/summarize.py: slot_occupancy`). No gateway change was made.
+  - A request holds a slot from arrival + wait_ms to arrival + wait_ms + upstream_ms, clipped to the measure window.
+  - Its pool follows from mode + cookie flag.
+  - Reported per pool: human and crawler slot-seconds as a share of capacity (slots × window), the crawler share of occupied slot-seconds, and wait p50/p95 per class.
+  - Requests rejected (429/503) or cancelled while waiting are excluded, because they held no slot.
+  - For reference, in S4 the cookie pool was 0 % crawler (humans used ~16 % of its capacity), and the anon pool was 99.7 % crawler.
+
 ## Load generator
 - The human simulator is **open-loop**: Poisson arrivals at about 3 req/s in total, so the send schedule does not depend on responses. This avoids coordinated omission. The spec's closed-loop design (10 users, 2–5 s think time) is replaced.
   - There are still 10 virtual users, each with its own cookie jar and its own fixed XFF (`10.0.0.1`–`10.0.0.10`).

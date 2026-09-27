@@ -83,6 +83,20 @@
     "ok_wait_p50_ms": 8612.5,
     "sessions_created_measure": 898
   },
+  "slot_occupancy": {
+    "global": {
+      "slots": 4,
+      "human_share_of_capacity": 0.159,
+      "crawler_share_of_capacity": 0.839,
+      "crawler_share_of_used": 0.841,
+      "human_wait_p50_ms": 8649.0,
+      "human_wait_p95_ms": 12385.7,
+      "crawler_wait_p50_ms": 8619.0,
+      "crawler_wait_p95_ms": 12291.7,
+      "human_requests": 558,
+      "crawler_requests": 903
+    }
+  },
   "crawler_client": {
     "requests_measure": 947,
     "ok_rps": 4.98,

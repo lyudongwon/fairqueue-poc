@@ -3,6 +3,9 @@
 CRAWLER:
   naive     fixed XFF, no cookies
   rotating  random XFF per request (never inside 10.0.0.0/24, the human range), no cookies
+  cookie-keeper  rotating XFF + ONE session cookie obtained once via the gateway, shared by all workers
+  cookie-farm    rotating XFF + FARM_SIZE (100) cookies obtained up front via the gateway, round-robin per request
+Cookies are sent as a fixed Cookie header; the jar never stores anything.
 On 429/503 a worker sleeps Retry-After (1 s) before its next request.
 URL mix (see DECISIONS.md): commit 50 / blame 25 / src 15 / compare 10.
 Each type's pool is shuffled once per run and consumed without replacement
@@ -28,6 +31,8 @@ TIMEOUT = float(os.environ.get("CRAWLER_TIMEOUT", "30"))
 SEED = int(os.environ.get("SEED", "1"))
 MIX = {"commit": 50, "blame": 25, "src": 15, "compare": 10}
 NAIVE_IP = "198.51.100.7"
+COOKIE_KINDS = {"cookie-keeper": 1, "cookie-farm": int(os.environ.get("FARM_SIZE", "100"))}
+COOKIE_URL = "/poc/redis"  # cheap page used only to obtain cookies
 WALL_OFFSET = time.time() - time.monotonic()
 
 
@@ -68,19 +73,54 @@ def rand_ip(rng):
 def xff_for(rng):
     if KIND == "naive":
         return NAIVE_IP
-    if KIND == "rotating":
+    if KIND == "rotating" or KIND in COOKIE_KINDS:
         return rand_ip(rng)
     raise SystemExit(f"unknown CRAWLER {KIND}")
 
 
-async def worker(client, pools, rng, t0, deadline, rows):
+class CookieRing:
+    """Round-robin over the crawler's session cookies (empty => cookieless)."""
+
+    def __init__(self, values):
+        self.values, self.i = values, 0
+
+    def next(self):
+        if not self.values:
+            return None
+        v = self.values[self.i % len(self.values)]
+        self.i += 1
+        return v
+
+
+async def obtain_cookies(client, n, rng):
+    """Fetch n fresh sessions through the gateway (they queue in the anon pool like any first visit)."""
+    out, attempts = [], 0
+    while len(out) < n and attempts < n * 5:
+        attempts += 1
+        try:
+            r = await client.get(COOKIE_URL, headers={"X-Forwarded-For": rand_ip(rng)})
+        except httpx.HTTPError:
+            continue
+        v = r.cookies.get("i_like_gitea")
+        if r.status_code == 200 and v:
+            out.append(v)
+    if len(out) < n:
+        raise SystemExit(f"obtained only {len(out)}/{n} cookies")
+    return out
+
+
+async def worker(client, pools, rng, t0, deadline, rows, ring):
     while time.monotonic() < deadline:
         route, url = pools.next()
         ip = xff_for(rng)
+        headers = {"X-Forwarded-For": ip}
+        cookie = ring.next()
+        if cookie:
+            headers["Cookie"] = f"i_like_gitea={cookie}"
         start = time.monotonic()
         status = ""
         try:
-            r = await asyncio.wait_for(client.get(url, headers={"X-Forwarded-For": ip}),
+            r = await asyncio.wait_for(client.get(url, headers=headers),
                                        timeout=max(0.1, deadline - start))
             status = r.status_code
             await r.aclose()
@@ -107,8 +147,12 @@ async def main():
         headers={"User-Agent": f"crawler-sim/{KIND}"})
     t0 = time.monotonic()
     deadline = t0 + WARMUP + DURATION
+    ring = CookieRing([])
+    if KIND in COOKIE_KINDS:  # done inside warmup, counted against it
+        ring = CookieRing(await obtain_cookies(client, COOKIE_KINDS[KIND], rng))
+        print(f"obtained {len(ring.values)} cookies in {time.monotonic() - t0:.1f}s", flush=True)
     rows = []
-    await asyncio.gather(*(worker(client, pools, random.Random(rng.random()), t0, deadline, rows)
+    await asyncio.gather(*(worker(client, pools, random.Random(rng.random()), t0, deadline, rows, ring)
                            for _ in range(C)))
     await client.aclose()
     os.makedirs(os.path.join(RUN_DIR, "raw"), exist_ok=True)

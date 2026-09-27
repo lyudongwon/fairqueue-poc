@@ -83,6 +83,32 @@
     "ok_wait_p50_ms": 9749.7,
     "sessions_created_measure": 802
   },
+  "slot_occupancy": {
+    "cookie": {
+      "slots": 4,
+      "human_share_of_capacity": 0.167,
+      "crawler_share_of_capacity": 0.0,
+      "crawler_share_of_used": 0.0,
+      "human_wait_p50_ms": 0.0,
+      "human_wait_p95_ms": 0.0,
+      "crawler_wait_p50_ms": null,
+      "crawler_wait_p95_ms": null,
+      "human_requests": 549,
+      "crawler_requests": 0
+    },
+    "anon": {
+      "slots": 2,
+      "human_share_of_capacity": 0.0,
+      "crawler_share_of_capacity": 0.997,
+      "crawler_share_of_used": 1.0,
+      "human_wait_p50_ms": null,
+      "human_wait_p95_ms": null,
+      "crawler_wait_p50_ms": 9714.0,
+      "crawler_wait_p95_ms": 14580.9,
+      "human_requests": 0,
+      "crawler_requests": 807
+    }
+  },
   "crawler_client": {
     "requests_measure": 852,
     "ok_rps": 4.46,

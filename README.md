@@ -262,6 +262,10 @@ The spec's reading: if the simple fix largely works, Q3 decides the case. Here i
 - Cookie presence is judged by the cookie name only. A fabricated `i_like_gitea` value would pass.
 - Human latency is right-censored by the 30 s client timeout. Percentiles near 30 s are lower bounds.
 - The work index uses unloaded single-request medians as unit costs. It is an estimate of work done, not a measured CPU-time split.
+- **First-time visitors go through the anonymous queue under `anon-cap`.**
+  - A human with no session cookie yet (a first visit, or cookies cleared or expired) is indistinguishable from a cookieless crawler. That human's first request, and every request sent before the cookie arrives, waits in the anon pool behind the crawlers.
+  - In the stage 4 smoke test with unprimed users, only 61 % of human requests carried a cookie. Gateway wait p95 was ≈ 10 s, and a 503 there (no Set-Cookie) left a user cookieless indefinitely.
+  - The S2–S6 measurements prime every user (returning visitors), so **they do not measure the first-visit experience**, which under anon-cap is as bad as the crawler queue.
 - S0/S1 humans were unprimed (cookie obtained on the first request), while S2 onward are primed. The measure windows are comparable: every S0/S1 user had its cookie within the warmup.
 - Stage 4 used a single parameter set per mode (no N/M sweep). The Q2 verdict holds for anon N=2 / M=4 only.
 - The session provider is memory. Every cookieless request creates a server-side session that lives 24 h, so a cookieless crawler also grows Gitea's heap.
