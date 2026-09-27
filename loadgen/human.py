@@ -9,6 +9,7 @@ Latency is measured from the *scheduled* send time.
 """
 import asyncio
 import csv
+import http.cookiejar
 import os
 import random
 import time
@@ -53,7 +54,7 @@ class User:
 async def fire(user, route, url, sched, t0, rows):
     await asyncio.sleep(max(0.0, sched - time.monotonic()))
     send = time.monotonic()
-    cookie_sent = bool(user.client.cookies.get("i_like_gitea"))
+    cookie_sent = "i_like_gitea=" in user.client.headers.get("Cookie", "") or         any(c.name == "i_like_gitea" for c in user.client.cookies.jar)
     status, size, err = "", 0, ""
     try:
         r = await user.client.get(url)
@@ -78,7 +79,6 @@ async def prime(users):
     Fetched straight from Gitea, not via the gateway, so the cookie is obtained
     the same way in every mode and never queues behind crawlers in anon-cap.
     """
-    host = httpx.URL(BASE).host
     async with httpx.AsyncClient(timeout=TIMEOUT) as c:
         for u in users:
             c.cookies.clear()
@@ -86,7 +86,11 @@ async def prime(users):
             val = r.cookies.get("i_like_gitea")
             if not val:
                 raise SystemExit(f"priming failed for user {u.idx + 1}: status {r.status_code}")
-            u.client.cookies.set("i_like_gitea", val, domain=host)
+            # Pin it as a header and stop the jar from storing any other cookie, so the
+            # user presents exactly this session on every request (the jar's host
+            # matching for dotless names like "gateway" would otherwise drop it).
+            u.client.headers["Cookie"] = f"i_like_gitea={val}"
+            u.client.cookies.jar.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
 
 
 async def main():
