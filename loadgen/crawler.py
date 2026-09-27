@@ -3,6 +3,7 @@
 CRAWLER:
   naive     fixed XFF, no cookies
   rotating  random XFF per request (never inside 10.0.0.0/24, the human range), no cookies
+On 429/503 a worker sleeps Retry-After (1 s) before its next request.
 URL mix (see DECISIONS.md): commit 50 / blame 25 / src 15 / compare 10.
 Each type's pool is shuffled once per run and consumed without replacement
 (wraps around only if exhausted; wraps are counted).
@@ -83,6 +84,8 @@ async def worker(client, pools, rng, t0, deadline, rows):
                                        timeout=max(0.1, deadline - start))
             status = r.status_code
             await r.aclose()
+            if status in (429, 503):  # honour Retry-After like a polite-enough crawler
+                await asyncio.sleep(min(float(r.headers.get("Retry-After", "1")), max(0.0, deadline - time.monotonic())))
         except asyncio.TimeoutError:
             status = "cut"  # still in flight at run end
         except httpx.TimeoutException:

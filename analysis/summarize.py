@@ -62,6 +62,12 @@ def main(run_dir):
         "new_sessions_crawler": sum(1 for e in glog if e["new_session"] and not is_human(e)),
     }
     dur = meta["duration_s"]
+    hw = [e for e in glog if is_human(e) and w0 <= e["ts"] / 1000 < w1]
+    out["human_gateway"] = {
+        "wait_p50_ms": pct([e["wait_ms"] for e in hw], .5), "wait_p95_ms": pct([e["wait_ms"] for e in hw], .95),
+        "upstream_p95_ms": pct([e["upstream_ms"] for e in hw if e["status"] == 200], .95),
+        "cookie_share": round(sum(e["cookie"] for e in hw) / len(hw), 3) if hw else None,
+    }
     cw = [e for e in glog if not is_human(e) and e["route"] != "other" and w0 <= e["ts"] / 1000 < w1]
     crawl_ok = [e for e in cw if e["status"] == 200]
     out["crawler_ok_rps"] = round(len(crawl_ok) / dur, 2)
@@ -77,6 +83,7 @@ def main(run_dir):
             "ok_route_share": {rt: round(sum(1 for e in crawl_ok if e["route"] == rt) / len(crawl_ok), 3)
                                for rt in sorted({e["route"] for e in crawl_ok})} if crawl_ok else {},
             "ok_upstream_p50_ms": pct([e["upstream_ms"] for e in crawl_ok], .5),
+            "ok_wait_p50_ms": pct([e["wait_ms"] for e in crawl_ok], .5),
             "sessions_created_measure": sum(1 for e in cw if e["new_session"]),
         }
     ccsv = os.path.join(run_dir, "raw", "crawler.csv")

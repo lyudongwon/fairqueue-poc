@@ -86,15 +86,6 @@ type passThrough struct{}
 
 func (passThrough) admit(context.Context, string, bool) (func(), int) { return func() {}, 0 }
 
-func newAdmitter(mode string) admitter {
-	switch mode {
-	case "none":
-		return passThrough{}
-	}
-	log.Fatalf("unknown MODE %q", mode)
-	return nil
-}
-
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
 func main() {
@@ -131,6 +122,9 @@ func main() {
 		release, reject := adm.admit(r.Context(), e.IP, e.Cookie)
 		e.WaitMs = ms(time.Since(arrival))
 		if reject != 0 {
+			if reject == 429 || reject == 503 {
+				rw.Header().Set("Retry-After", "1")
+			}
 			rw.WriteHeader(reject)
 		} else {
 			st := &reqState{start: time.Now()}
