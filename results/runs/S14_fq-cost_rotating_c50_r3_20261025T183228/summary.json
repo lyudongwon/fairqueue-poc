@@ -1,0 +1,185 @@
+{
+  "run_id": "S14_fq-cost_rotating_c50_r3_20261025T183228",
+  "status": "ok",
+  "human": {
+    "n": 573,
+    "p50_ms": 354.4,
+    "p95_ms": 12469.3,
+    "p99_ms": 14590.8,
+    "fail_rate": 0.0,
+    "fails_by_status": {}
+  },
+  "human_by_route": {
+    "home": {
+      "n": 145,
+      "p50_ms": 192.9,
+      "p95_ms": 493.3,
+      "p99_ms": 711.4,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "src": {
+      "n": 145,
+      "p50_ms": 267.2,
+      "p95_ms": 718.6,
+      "p99_ms": 948.9,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "commits": {
+      "n": 142,
+      "p50_ms": 323.4,
+      "p95_ms": 658.5,
+      "p99_ms": 930.1,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    },
+    "commit": {
+      "n": 141,
+      "p50_ms": 11100.3,
+      "p95_ms": 14552.4,
+      "p99_ms": 15061.0,
+      "fail_rate": 0.0,
+      "fails_by_status": {}
+    }
+  },
+  "human_send_lag_p99_ms": 2.5,
+  "gateway": {
+    "requests": 1874,
+    "human_requests": 668,
+    "crawler_requests": 1205,
+    "new_sessions_total": 1791,
+    "new_sessions_crawler": 1123
+  },
+  "human_gateway": {
+    "wait_p50_ms": 173.3,
+    "wait_p95_ms": 11923.9,
+    "upstream_p95_ms": 710.6,
+    "cookie_share": 0.0
+  },
+  "crawler_ok_rps": 4.97,
+  "crawler_work_index": 0.924,
+  "crawler_gateway": {
+    "requests_measure": 968,
+    "status": {
+      "200": 895,
+      "499": 65,
+      "503": 8
+    },
+    "with_cookie": 0,
+    "distinct_ips": 968,
+    "route_share": {
+      "blame": 0.248,
+      "commit": 0.51,
+      "compare": 0.094,
+      "src": 0.148
+    },
+    "ok_route_share": {
+      "blame": 0.266,
+      "commit": 0.513,
+      "compare": 0.061,
+      "src": 0.16
+    },
+    "ok_upstream_p50_ms": 269.4,
+    "ok_wait_p50_ms": 7548.5,
+    "sessions_created_measure": 895
+  },
+  "slot_occupancy": {
+    "fq": {
+      "slots": 4,
+      "human_share_of_capacity": 0.177,
+      "crawler_share_of_capacity": 0.823,
+      "crawler_share_of_used": 0.823,
+      "human_wait_p50_ms": 173.3,
+      "human_wait_p95_ms": 11923.9,
+      "crawler_wait_p50_ms": 7883.3,
+      "crawler_wait_p95_ms": 23449.2,
+      "human_requests": 573,
+      "crawler_requests": 915
+    }
+  },
+  "principal_costs": {
+    "principals": 6,
+    "human_principals": 2,
+    "human_cost_s": 41.5,
+    "crawler_cost_s": 639.2,
+    "human_cost_per_principal_s": 20.76,
+    "top": [
+      {
+        "principal": "anon:commit",
+        "class": "crawler",
+        "requests": 635,
+        "cost_s": 294.2,
+        "share": 0.432
+      },
+      {
+        "principal": "anon:compare",
+        "class": "crawler",
+        "requests": 91,
+        "cost_s": 164.4,
+        "share": 0.242
+      },
+      {
+        "principal": "anon:blame",
+        "class": "crawler",
+        "requests": 240,
+        "cost_s": 142.3,
+        "share": 0.209
+      },
+      {
+        "principal": "anon:src",
+        "class": "crawler",
+        "requests": 288,
+        "cost_s": 38.3,
+        "share": 0.056
+      },
+      {
+        "principal": "anon:commits",
+        "class": "human",
+        "requests": 142,
+        "cost_s": 27.5,
+        "share": 0.04
+      }
+    ],
+    "crawler_sessions": 0,
+    "crawler_cost_per_session_s": null
+  },
+  "crawler_client": {
+    "requests_measure": 968,
+    "ok_rps": 4.97,
+    "status": {
+      "200": 894,
+      "503": 4,
+      "cut": 50,
+      "timeout": 20
+    }
+  },
+  "gitea": {
+    "cpu_pct_mean": 185.1,
+    "cpu_pct_p95": 195.5,
+    "psi_cpu_some_mean": 23.8,
+    "mem_start_mb": 94.8,
+    "mem_peak_mb": 437.5,
+    "mem_anon_peak_mb": 433.5,
+    "mem_limit_mb": 2048,
+    "mem_peak_pct": 21.4,
+    "psi_mem_some_max": 0.0,
+    "mem_events_max": 0,
+    "oom_kill": 0,
+    "memory_bottleneck": false
+  },
+  "other_containers": {
+    "gateway": {
+      "cpu_pct_p95": 18.3,
+      "cpu_pct_max": 27.1
+    },
+    "human": {
+      "cpu_pct_p95": 1.9,
+      "cpu_pct_max": 2.7
+    },
+    "crawler": {
+      "cpu_pct_p95": 9.2,
+      "cpu_pct_max": 12.7
+    }
+  }
+}
