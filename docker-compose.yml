@@ -41,6 +41,8 @@ services:
       FQ_SLOTS: ${FQ_SLOTS:-4}
       PROBATION_S: ${PROBATION_S:-600}
       ANON_SPLIT: ${ANON_SPLIT:-}
+      ANON_ORDER: ${ANON_ORDER:-}
+      ANON_HEAVY_CAP: ${ANON_HEAVY_CAP:-0}
       UPSTREAM: http://gitea:3000
       LOG_PATH: /app/${RUN_DIR:-results/scratch}/raw/gateway.jsonl
     volumes:

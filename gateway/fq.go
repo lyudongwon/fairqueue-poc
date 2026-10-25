@@ -3,13 +3,15 @@ package main
 import (
 	"container/list"
 	"context"
+	"strings"
 	"sync"
 	"time"
 )
 
 // fairQueue is a cost-based fair queue over a fixed number of upstream slots.
 // A freed slot goes to the waiting principal with the least accumulated
-// upstream time (ms); within a principal, requests are FIFO.
+// upstream time (ms); within a principal, requests are FIFO (anonOrder "lifo"
+// serves the newest waiter of an anonymous principal first instead).
 //
 // Principals: a session cookie is its own principal; cookieless requests
 // share "anon". With probation > 0, sessions first seen less than probation
@@ -27,21 +29,25 @@ type fqWaiter struct {
 	principal string
 	est       float64
 	seq       uint64
+	heavy     bool // counts against heavyCap while in flight
 }
 
 type fairQueue struct {
-	mu        sync.Mutex
-	free      int
-	probation time.Duration
-	anonSplit string             // "", "route" or "class": how cookieless requests are grouped (see anonKey)
-	cost      map[string]float64 // principal -> charged ms
-	sessCost  map[string]float64 // session -> actual ms
-	sum, n    map[string]float64 // principal -> actual ms / completed requests
-	gsum, gn  float64
-	queues    map[string]*list.List // principal -> FIFO of *fqWaiter
-	waiting   int
-	seq       uint64
-	firstSeen map[string]time.Time
+	mu            sync.Mutex
+	free          int
+	probation     time.Duration
+	anonSplit     string             // "", "route" or "class": how cookieless requests are grouped (see anonKey)
+	anonOrder     string             // "" (FIFO) or "lifo": order inside an anonymous principal's queue
+	heavyCap      int                // >0: at most this many anonymous heavy requests in flight (needs anonSplit)
+	inflightHeavy int                // anonymous heavy requests currently holding a slot
+	cost          map[string]float64 // principal -> charged ms
+	sessCost      map[string]float64 // session -> actual ms
+	sum, n        map[string]float64 // principal -> actual ms / completed requests
+	gsum, gn      float64
+	queues        map[string]*list.List // principal -> queue of *fqWaiter
+	waiting       int
+	seq           uint64
+	firstSeen     map[string]time.Time
 }
 
 // anonKey names the principal of a cookieless request.
@@ -57,13 +63,17 @@ func anonKey(split, route string) string {
 	case "route":
 		return "anon:" + route
 	case "class":
-		if route == "blame" || route == "compare" {
+		if isHeavyRoute(route) {
 			return "anon:heavy"
 		}
 		return "anon:light"
 	}
 	return "anon"
 }
+
+// isHeavyRoute marks the route types whose requests cost an order of magnitude more
+// than the rest (stage 1: blame ≈ 163 ms, compare ≈ 1544 ms median).
+func isHeavyRoute(route string) bool { return route == "blame" || route == "compare" }
 
 func newFairQueue(slots int, probation time.Duration) *fairQueue {
 	return &fairQueue{
@@ -111,18 +121,26 @@ func (q *fairQueue) estimateLocked(p string) float64 {
 	return defaultEstMs
 }
 
+func (q *fairQueue) heavyBlockedLocked() bool {
+	return q.heavyCap > 0 && q.inflightHeavy >= q.heavyCap
+}
+
 func (q *fairQueue) admit(ctx context.Context, ri reqInfo) (func(time.Duration), int, string) {
 	q.mu.Lock()
 	p, label := q.principalLocked(ri.session, ri.route)
 	est := q.estimateLocked(p)
-	if q.free > 0 && q.waiting == 0 {
+	heavy := q.heavyCap > 0 && ri.session == "" && isHeavyRoute(ri.route)
+	if q.free > 0 && q.waiting == 0 && !(heavy && q.heavyBlockedLocked()) {
 		q.free--
+		if heavy {
+			q.inflightHeavy++
+		}
 		q.cost[p] += est
 		q.mu.Unlock()
-		return q.releaser(p, ri.session, est), 0, label
+		return q.releaser(p, ri.session, est, heavy), 0, label
 	}
 	q.seq++
-	w := &fqWaiter{ch: make(chan struct{}), principal: p, est: est, seq: q.seq}
+	w := &fqWaiter{ch: make(chan struct{}), principal: p, est: est, seq: q.seq, heavy: heavy}
 	l := q.queues[p]
 	if l == nil {
 		l = list.New()
@@ -130,6 +148,7 @@ func (q *fairQueue) admit(ctx context.Context, ri reqInfo) (func(time.Duration),
 	}
 	el := l.PushBack(w)
 	q.waiting++
+	q.drainLocked() // a free slot may be waiting for an eligible request (heavy cap)
 	q.mu.Unlock()
 
 	timer := time.NewTimer(maxWait)
@@ -137,7 +156,7 @@ func (q *fairQueue) admit(ctx context.Context, ri reqInfo) (func(time.Duration),
 	status := 0
 	select {
 	case <-w.ch:
-		return q.releaser(p, ri.session, est), 0, label
+		return q.releaser(p, ri.session, est, heavy), 0, label
 	case <-timer.C:
 		status = 503
 	case <-ctx.Done():
@@ -148,7 +167,11 @@ func (q *fairQueue) admit(ctx context.Context, ri reqInfo) (func(time.Duration),
 	select {
 	case <-w.ch: // granted while giving up: refund and pass the slot on
 		q.cost[p] -= est
-		q.dispatchLocked()
+		if heavy {
+			q.inflightHeavy--
+		}
+		q.free++
+		q.drainLocked()
 	default:
 		l.Remove(el)
 		q.waiting--
@@ -156,7 +179,7 @@ func (q *fairQueue) admit(ctx context.Context, ri reqInfo) (func(time.Duration),
 	return nil, status, label
 }
 
-func (q *fairQueue) releaser(p, session string, est float64) func(time.Duration) {
+func (q *fairQueue) releaser(p, session string, est float64, heavy bool) func(time.Duration) {
 	return func(d time.Duration) {
 		a := ms(d)
 		q.mu.Lock()
@@ -168,32 +191,55 @@ func (q *fairQueue) releaser(p, session string, est float64) func(time.Duration)
 		q.n[p]++
 		q.gsum += a
 		q.gn++
-		q.dispatchLocked()
+		if heavy {
+			q.inflightHeavy--
+		}
+		q.free++
+		q.drainLocked()
 		q.mu.Unlock()
 	}
 }
 
-// dispatchLocked hands a freed slot to the cheapest waiting principal
-// (ties: oldest head-of-line request), or returns it to the free pool.
-func (q *fairQueue) dispatchLocked() {
-	var best *list.List
-	var bestW *fqWaiter
-	for p, l := range q.queues {
-		if l.Len() == 0 {
-			continue
-		}
-		w := l.Front().Value.(*fqWaiter)
-		if bestW == nil || q.cost[p] < q.cost[bestW.principal] ||
-			(q.cost[p] == q.cost[bestW.principal] && w.seq < bestW.seq) {
-			best, bestW = l, w
-		}
+// headLocked is the waiter of l that would be served next within its principal.
+func (q *fairQueue) headLocked(p string, l *list.List) *list.Element {
+	if q.anonOrder == "lifo" && strings.HasPrefix(p, "anon") {
+		return l.Back()
 	}
-	if bestW == nil {
-		q.free++
-		return
+	return l.Front()
+}
+
+// drainLocked hands free slots to the cheapest eligible waiting principal
+// (ties: oldest head-of-line request) until no slot or no eligible waiter is left.
+// A heavy waiter is not eligible while the heavy cap is reached.
+func (q *fairQueue) drainLocked() {
+	for q.free > 0 {
+		var bestL *list.List
+		var bestEl *list.Element
+		var bestW *fqWaiter
+		for p, l := range q.queues {
+			if l.Len() == 0 {
+				continue
+			}
+			el := q.headLocked(p, l)
+			w := el.Value.(*fqWaiter)
+			if w.heavy && q.heavyBlockedLocked() {
+				continue
+			}
+			if bestW == nil || q.cost[p] < q.cost[bestW.principal] ||
+				(q.cost[p] == q.cost[bestW.principal] && w.seq < bestW.seq) {
+				bestL, bestEl, bestW = l, el, w
+			}
+		}
+		if bestW == nil {
+			return
+		}
+		bestL.Remove(bestEl)
+		q.waiting--
+		q.free--
+		if bestW.heavy {
+			q.inflightHeavy++
+		}
+		q.cost[bestW.principal] += bestW.est
+		close(bestW.ch)
 	}
-	best.Remove(best.Front())
-	q.waiting--
-	q.cost[bestW.principal] += bestW.est
-	close(bestW.ch)
 }

@@ -53,7 +53,16 @@ func newAdmitter(mode string) admitter {
 		if q.anonSplit != "" && q.anonSplit != "route" && q.anonSplit != "class" {
 			log.Fatalf("unknown ANON_SPLIT %q (want \"\", route or class)", q.anonSplit)
 		}
-		log.Printf("%s slots=%d probation=%s anon_split=%q", mode, q.free, probation, q.anonSplit)
+		q.anonOrder = os.Getenv("ANON_ORDER")
+		if q.anonOrder != "" && q.anonOrder != "fifo" && q.anonOrder != "lifo" {
+			log.Fatalf("unknown ANON_ORDER %q (want \"\", fifo or lifo)", q.anonOrder)
+		}
+		q.heavyCap = envInt("ANON_HEAVY_CAP", 0)
+		if q.heavyCap > 0 && q.anonSplit == "" {
+			log.Fatalf("ANON_HEAVY_CAP=%d needs ANON_SPLIT=route or class", q.heavyCap)
+		}
+		log.Printf("%s slots=%d probation=%s anon_split=%q anon_order=%q heavy_cap=%d",
+			mode, q.free, probation, q.anonSplit, q.anonOrder, q.heavyCap)
 		return q
 	}
 	log.Fatalf("unknown MODE %q", mode)

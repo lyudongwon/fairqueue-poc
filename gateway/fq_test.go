@@ -113,6 +113,103 @@ func TestAnonSplitOrdersByRouteCost(t *testing.T) {
 	<-order
 }
 
+// LIFO inside an anonymous principal: the newest waiter goes first; cookie holders stay FIFO.
+func TestAnonLIFO(t *testing.T) {
+	q := newFairQueue(1, 0)
+	q.anonOrder = "lifo"
+	hold, _, _ := q.admit(context.Background(), reqInfo{route: "commit"})
+	order := make(chan string, 3)
+	enqueue := func(name string) {
+		go func() {
+			r, _, _ := q.admit(context.Background(), reqInfo{route: "commit"})
+			order <- name
+			r(0)
+		}()
+		time.Sleep(10 * time.Millisecond)
+	}
+	enqueue("old")
+	enqueue("mid")
+	enqueue("new")
+	hold(time.Millisecond)
+	if first := <-order; first != "new" {
+		t.Fatalf("first=%s, want new (LIFO)", first)
+	}
+	<-order
+	<-order
+	time.Sleep(20 * time.Millisecond)
+	q.mu.Lock()
+	if q.free != 1 || q.waiting != 0 {
+		t.Fatalf("free=%d waiting=%d", q.free, q.waiting)
+	}
+	q.mu.Unlock()
+
+	// default stays FIFO
+	q = newFairQueue(1, 0)
+	hold, _, _ = q.admit(context.Background(), reqInfo{route: "commit"})
+	order = make(chan string, 3)
+	enqueue = func(name string) {
+		go func() {
+			r, _, _ := q.admit(context.Background(), reqInfo{route: "commit"})
+			order <- name
+			r(0)
+		}()
+		time.Sleep(10 * time.Millisecond)
+	}
+	enqueue("old")
+	enqueue("new")
+	hold(time.Millisecond)
+	if first := <-order; first != "old" {
+		t.Fatalf("first=%s, want old (FIFO)", first)
+	}
+	<-order
+}
+
+// Heavy cap: with cap 1 only one blame/compare request holds a slot; the rest wait
+// even though slots are free, and light requests use the free slots at once.
+func TestHeavyCap(t *testing.T) {
+	q := newFairQueue(3, 0)
+	q.anonSplit = "route"
+	q.heavyCap = 1
+	h1, st, _ := q.admit(context.Background(), reqInfo{route: "blame"})
+	if st != 0 {
+		t.Fatalf("first heavy status %d", st)
+	}
+	got := make(chan string, 2)
+	go func() {
+		r, _, _ := q.admit(context.Background(), reqInfo{route: "compare"})
+		got <- "heavy2"
+		r(0)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-got:
+		t.Fatal("second heavy request must wait while cap is reached")
+	default:
+	}
+	l1, st, _ := q.admit(context.Background(), reqInfo{route: "home"})
+	if st != 0 {
+		t.Fatalf("light status %d", st)
+	}
+	l1(time.Millisecond)
+	select {
+	case <-got:
+		t.Fatal("heavy2 got in before the first heavy finished")
+	default:
+	}
+	h1(time.Millisecond)
+	select {
+	case <-got:
+	case <-time.After(time.Second):
+		t.Fatal("heavy2 not served after the first heavy finished")
+	}
+	time.Sleep(20 * time.Millisecond)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.inflightHeavy != 0 || q.waiting != 0 || q.free != 3 {
+		t.Fatalf("inflightHeavy=%d waiting=%d free=%d", q.inflightHeavy, q.waiting, q.free)
+	}
+}
+
 func TestFairQueueCancelWhileWaiting(t *testing.T) {
 	q := newFairQueue(1, 0)
 	rel, _, _ := q.admit(context.Background(), reqInfo{})
