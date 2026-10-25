@@ -91,6 +91,7 @@ type ctxKey struct{}
 type reqInfo struct {
 	ip      string
 	session string // cookie value, "" if none
+	route   string // route type from routeOf (blame, compare, home, ...)
 }
 
 // admitter decides whether/when a request may reach Gitea. It returns a
@@ -147,7 +148,7 @@ func main() {
 		sess := sessionOf(r)
 		e := entry{TS: arrival.UnixMilli(), Mode: mode, Cookie: sess != "", Route: routeOf(r.URL.Path), IP: clientIP(r), Sess: short(sess)}
 		rw := &statusWriter{ResponseWriter: w, status: 200}
-		release, reject, principal := adm.admit(r.Context(), reqInfo{ip: e.IP, session: sess})
+		release, reject, principal := adm.admit(r.Context(), reqInfo{ip: e.IP, session: sess, route: e.Route})
 		e.Principal = principal
 		e.WaitMs = ms(time.Since(arrival))
 		if reject != 0 {

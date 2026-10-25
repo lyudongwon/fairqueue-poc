@@ -49,7 +49,11 @@ func newAdmitter(mode string) admitter {
 			probation = time.Duration(envInt("PROBATION_S", 600)) * time.Second
 		}
 		q := newFairQueue(envInt("FQ_SLOTS", 4), probation)
-		log.Printf("%s slots=%d probation=%s", mode, q.free, probation)
+		q.anonSplit = os.Getenv("ANON_SPLIT")
+		if q.anonSplit != "" && q.anonSplit != "route" && q.anonSplit != "class" {
+			log.Fatalf("unknown ANON_SPLIT %q (want \"\", route or class)", q.anonSplit)
+		}
+		log.Printf("%s slots=%d probation=%s anon_split=%q", mode, q.free, probation, q.anonSplit)
 		return q
 	}
 	log.Fatalf("unknown MODE %q", mode)

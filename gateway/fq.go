@@ -33,6 +33,7 @@ type fairQueue struct {
 	mu        sync.Mutex
 	free      int
 	probation time.Duration
+	anonSplit string             // "", "route" or "class": how cookieless requests are grouped (see anonKey)
 	cost      map[string]float64 // principal -> charged ms
 	sessCost  map[string]float64 // session -> actual ms
 	sum, n    map[string]float64 // principal -> actual ms / completed requests
@@ -41,6 +42,27 @@ type fairQueue struct {
 	waiting   int
 	seq       uint64
 	firstSeen map[string]time.Time
+}
+
+// anonKey names the principal of a cookieless request.
+//
+//	split ""      -> one shared "anon" (stage 7 behaviour)
+//	split "route" -> one principal per route type ("anon:blame", "anon:home", ...)
+//	split "class" -> two principals by expected cost: "anon:heavy" (blame, compare)
+//	                 and "anon:light" (everything else)
+//
+// The split uses only the requested path, never who is asking.
+func anonKey(split, route string) string {
+	switch split {
+	case "route":
+		return "anon:" + route
+	case "class":
+		if route == "blame" || route == "compare" {
+			return "anon:heavy"
+		}
+		return "anon:light"
+	}
+	return "anon"
 }
 
 func newFairQueue(slots int, probation time.Duration) *fairQueue {
@@ -59,9 +81,10 @@ func (q *fairQueue) register(session string, age time.Duration) {
 }
 
 // principalLocked returns the scheduling key and its log label.
-func (q *fairQueue) principalLocked(session string) (key, label string) {
+func (q *fairQueue) principalLocked(session, route string) (key, label string) {
 	if session == "" {
-		return "anon", "anon"
+		k := anonKey(q.anonSplit, route)
+		return k, k
 	}
 	fs, ok := q.firstSeen[session]
 	if !ok {
@@ -90,7 +113,7 @@ func (q *fairQueue) estimateLocked(p string) float64 {
 
 func (q *fairQueue) admit(ctx context.Context, ri reqInfo) (func(time.Duration), int, string) {
 	q.mu.Lock()
-	p, label := q.principalLocked(ri.session)
+	p, label := q.principalLocked(ri.session, ri.route)
 	est := q.estimateLocked(p)
 	if q.free > 0 && q.waiting == 0 {
 		q.free--

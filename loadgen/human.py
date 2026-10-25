@@ -28,6 +28,7 @@ SEED = int(os.environ.get("SEED", "1"))
 PRIME_URL = os.environ.get("PRIME_URL", "http://gitea:3000/")  # "" disables priming
 REGISTER_URL = os.environ.get("REGISTER_URL", "")  # gateway /seen endpoint (fq modes only)
 COOKIE_AGE_S = int(os.environ.get("HUMAN_COOKIE_AGE_S", "86400"))
+COOKIELESS = os.environ.get("HUMAN_COOKIELESS", "") not in ("", "0")  # never store or send a cookie (first-visit users)
 CYCLE = ["home", "src", "commits", "commit"]
 WALL_OFFSET = time.time() - time.monotonic()
 
@@ -44,6 +45,8 @@ class User:
             base_url=BASE, timeout=TIMEOUT, follow_redirects=False,
             limits=httpx.Limits(max_connections=None, max_keepalive_connections=50),
             headers={"X-Forwarded-For": f"10.0.0.{idx + 1}", "User-Agent": f"human-sim/{idx + 1}"})
+        if COOKIELESS:  # a human with no session cookie: indistinguishable from a cookieless crawler by identity
+            self.client.cookies.jar.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
 
     def next_url(self):
         route = CYCLE[self.step % len(CYCLE)]
@@ -103,7 +106,7 @@ async def main():
     rng = random.Random(SEED)
     pools = {k: load(k) for k in ("home", "src", "commits", "commit")}
     users = [User(i, random.Random(SEED * 1000 + i), pools) for i in range(USERS)]
-    if PRIME_URL:
+    if PRIME_URL and not COOKIELESS:
         await prime(users)
     total = WARMUP + DURATION
     t0 = time.monotonic() + 0.5
