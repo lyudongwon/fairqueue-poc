@@ -45,6 +45,7 @@ services:
       ANON_HEAVY_CAP: ${ANON_HEAVY_CAP:-0}
       BOUNCE: ${BOUNCE:-}
       NEW_SPLIT: ${NEW_SPLIT:-}
+      NEW_ORDER: ${NEW_ORDER:-}
       IP_SPLIT: ${IP_SPLIT:-}
       BOUNCE_SECRET: ${BOUNCE_SECRET:-fq-poc-secret}
       UPSTREAM: http://gitea:3000

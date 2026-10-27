@@ -36,6 +36,7 @@ type fairQueue struct {
 	mu            sync.Mutex
 	free          int
 	probation     time.Duration
+	newLifo       bool               // NEW_ORDER=lifo: newest request first inside the probation pool(s)
 	ipSplit       bool               // IP_SPLIT=1: anon and probation pools are further split per client IP
 	newSplit      bool               // NEW_SPLIT=class: probation pool split into new:light / new:heavy
 	anonSplit     string             // "", "route" or "class": how cookieless requests are grouped (see anonKey)
@@ -220,7 +221,7 @@ func (q *fairQueue) releaser(p, session string, est float64, heavy bool) func(ti
 
 // headLocked is the waiter of l that would be served next within its principal.
 func (q *fairQueue) headLocked(p string, l *list.List) *list.Element {
-	if q.anonOrder == "lifo" && strings.HasPrefix(p, "anon") {
+	if (q.anonOrder == "lifo" && strings.HasPrefix(p, "anon")) || (q.newLifo && strings.HasPrefix(p, "new")) {
 		return l.Back()
 	}
 	return l.Front()

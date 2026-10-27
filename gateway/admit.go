@@ -49,6 +49,7 @@ func newAdmitter(mode string) admitter {
 			probation = time.Duration(envInt("PROBATION_S", 600)) * time.Second
 		}
 		q := newFairQueue(envInt("FQ_SLOTS", 4), probation)
+		q.newLifo = os.Getenv("NEW_ORDER") == "lifo"
 		q.ipSplit = os.Getenv("IP_SPLIT") == "1"
 		q.newSplit = os.Getenv("NEW_SPLIT") == "class"
 		q.anonSplit = os.Getenv("ANON_SPLIT")
