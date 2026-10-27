@@ -8,6 +8,7 @@ export MODE=${MODE:-none} CRAWLER=${CRAWLER:-none} C=${C:-0}
 export RATE_PER_IP=${RATE_PER_IP:-2} BURST_PER_IP=${BURST_PER_IP:-2} GLOBAL_N=${GLOBAL_N:-4} ANON_N=${ANON_N:-2} COOKIE_M=${COOKIE_M:-4}
 export FQ_SLOTS=${FQ_SLOTS:-4} PROBATION_S=${PROBATION_S:-600} HUMAN_COOKIE_AGE_S=${HUMAN_COOKIE_AGE_S:-86400}
 export ANON_SPLIT=${ANON_SPLIT:-} HUMAN_COOKIELESS=${HUMAN_COOKIELESS:-} ANON_ORDER=${ANON_ORDER:-} ANON_HEAVY_CAP=${ANON_HEAVY_CAP:-0}
+export BOUNCE=${BOUNCE:-} HUMAN_FIRSTVISIT=${HUMAN_FIRSTVISIT:-}
 case "$MODE" in fq-*) export REGISTER_URL=http://gateway:9090/seen ;; *) export REGISTER_URL= ;; esac
 export WARMUP=${WARMUP:-30} DURATION=${DURATION:-180} RATE=${RATE:-3} SEED=$REP
 
@@ -53,7 +54,7 @@ ended=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 cat > "$RUN_DIR/meta.json" <<EOF
 {"run_id": "$RUN_ID", "scenario": "$SCEN", "rep": $REP, "mode": "$MODE", "crawler": "$CRAWLER",
- "c": $C, "gateway_params": {"rate_per_ip": $RATE_PER_IP, "burst_per_ip": $BURST_PER_IP, "global_n": $GLOBAL_N, "anon_n": $ANON_N, "cookie_m": $COOKIE_M, "fq_slots": $FQ_SLOTS, "probation_s": $PROBATION_S, "human_cookie_age_s": $HUMAN_COOKIE_AGE_S, "anon_split": "$ANON_SPLIT", "anon_order": "$ANON_ORDER", "anon_heavy_cap": $ANON_HEAVY_CAP, "human_cookieless": "$HUMAN_COOKIELESS"},
+ "c": $C, "gateway_params": {"rate_per_ip": $RATE_PER_IP, "burst_per_ip": $BURST_PER_IP, "global_n": $GLOBAL_N, "anon_n": $ANON_N, "cookie_m": $COOKIE_M, "fq_slots": $FQ_SLOTS, "probation_s": $PROBATION_S, "human_cookie_age_s": $HUMAN_COOKIE_AGE_S, "anon_split": "$ANON_SPLIT", "anon_order": "$ANON_ORDER", "anon_heavy_cap": $ANON_HEAVY_CAP, "human_cookieless": "$HUMAN_COOKIELESS", "bounce": "$BOUNCE", "human_firstvisit": "$HUMAN_FIRSTVISIT"},
  "warmup_s": $WARMUP, "duration_s": $DURATION, "human_rate": $RATE, "seed": $SEED,
  "git": "$(git rev-parse --short HEAD)",
  "started": "$started", "ended": "$ended", "status": "$status"}

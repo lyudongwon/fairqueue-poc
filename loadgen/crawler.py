@@ -16,6 +16,7 @@ import csv
 import http.cookiejar
 import os
 import random
+import re
 import time
 
 import httpx
@@ -101,9 +102,13 @@ async def obtain_cookies(client, n, rng):
             r = await client.get(COOKIE_URL, headers={"X-Forwarded-For": rand_ip(rng)})
         except httpx.HTTPError:
             continue
+        m = re.search(r"fq_sid=([^;]+)", ", ".join(r.headers.get_list("set-cookie")))
+        if m:  # gateway bounce (BOUNCE=1): the 302 itself carries the cookie
+            out.append(f"fq_sid={m.group(1)}")
+            continue
         v = r.cookies.get("i_like_gitea")
         if r.status_code == 200 and v:
-            out.append(v)
+            out.append(f"i_like_gitea={v}")
     if len(out) < n:
         raise SystemExit(f"obtained only {len(out)}/{n} cookies")
     return out
@@ -116,7 +121,7 @@ async def worker(client, pools, rng, t0, deadline, rows, ring):
         headers = {"X-Forwarded-For": ip}
         cookie = ring.next()
         if cookie:
-            headers["Cookie"] = f"i_like_gitea={cookie}"
+            headers["Cookie"] = cookie
         start = time.monotonic()
         status = ""
         try:

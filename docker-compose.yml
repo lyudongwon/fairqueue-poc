@@ -43,6 +43,8 @@ services:
       ANON_SPLIT: ${ANON_SPLIT:-}
       ANON_ORDER: ${ANON_ORDER:-}
       ANON_HEAVY_CAP: ${ANON_HEAVY_CAP:-0}
+      BOUNCE: ${BOUNCE:-}
+      BOUNCE_SECRET: ${BOUNCE_SECRET:-fq-poc-secret}
       UPSTREAM: http://gitea:3000
       LOG_PATH: /app/${RUN_DIR:-results/scratch}/raw/gateway.jsonl
     volumes:
@@ -65,6 +67,7 @@ services:
       REGISTER_URL: ${REGISTER_URL:-}
       HUMAN_COOKIE_AGE_S: ${HUMAN_COOKIE_AGE_S:-86400}
       HUMAN_COOKIELESS: ${HUMAN_COOKIELESS:-}
+      HUMAN_FIRSTVISIT: ${HUMAN_FIRSTVISIT:-}
     volumes:
       - ./:/app
     profiles: ["run"]

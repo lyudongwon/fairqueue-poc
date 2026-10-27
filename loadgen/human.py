@@ -12,6 +12,7 @@ import csv
 import http.cookiejar
 import os
 import random
+import re
 import time
 
 import httpx
@@ -29,6 +30,8 @@ PRIME_URL = os.environ.get("PRIME_URL", "http://gitea:3000/")  # "" disables pri
 REGISTER_URL = os.environ.get("REGISTER_URL", "")  # gateway /seen endpoint (fq modes only)
 COOKIE_AGE_S = int(os.environ.get("HUMAN_COOKIE_AGE_S", "86400"))
 COOKIELESS = os.environ.get("HUMAN_COOKIELESS", "") not in ("", "0")  # never store or send a cookie (first-visit users)
+FIRSTVISIT = os.environ.get("HUMAN_FIRSTVISIT", "") not in ("", "0")  # every 4-step visit is a brand-new visitor with no cookie
+SID = "fq_sid"  # the gateway's bounce cookie (BOUNCE=1); handled by hand because the jar drops dotless hosts
 CYCLE = ["home", "src", "commits", "commit"]
 WALL_OFFSET = time.time() - time.monotonic()
 
@@ -41,28 +44,43 @@ def load(name):
 class User:
     def __init__(self, idx, rng, pools):
         self.idx, self.rng, self.pools, self.step = idx, rng, pools, 0
+        self.sids = {}  # visitor generation -> fq_sid value
         self.client = httpx.AsyncClient(
             base_url=BASE, timeout=TIMEOUT, follow_redirects=False,
             limits=httpx.Limits(max_connections=None, max_keepalive_connections=50),
             headers={"X-Forwarded-For": f"10.0.0.{idx + 1}", "User-Agent": f"human-sim/{idx + 1}"})
-        if COOKIELESS:  # a human with no session cookie: indistinguishable from a cookieless crawler by identity
+        if COOKIELESS or FIRSTVISIT:  # a human with no session cookie: indistinguishable from a cookieless crawler by identity
             self.client.cookies.jar.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
 
     def next_url(self):
         route = CYCLE[self.step % len(CYCLE)]
+        gen = self.step // len(CYCLE)  # a new visitor every full cycle
         self.step += 1
         if route == "commits":
-            return route, self.pools["commits"][0]  # page 1
-        return route, self.rng.choice(self.pools[route])
+            return route, self.pools["commits"][0], gen  # page 1
+        return route, self.rng.choice(self.pools[route]), gen
 
 
-async def fire(user, route, url, sched, t0, rows):
+def sid_header(user, gen):
+    if FIRSTVISIT and gen in user.sids:
+        return {"Cookie": f"{SID}={user.sids[gen]}"}
+    return {}
+
+
+async def fire(user, route, url, gen, sched, t0, rows):
     await asyncio.sleep(max(0.0, sched - time.monotonic()))
     send = time.monotonic()
     cookie_sent = "i_like_gitea=" in user.client.headers.get("Cookie", "") or         any(c.name == "i_like_gitea" for c in user.client.cookies.jar)
-    status, size, err = "", 0, ""
+    status, size, err, hops = "", 0, "", 0
     try:
-        r = await user.client.get(url)
+        r = await user.client.get(url, headers=sid_header(user, gen))
+        while FIRSTVISIT and r.status_code == 302 and hops < 3:  # bounce: take the cookie, ask again
+            m = re.search(SID + r"=([^;]+)", ", ".join(r.headers.get_list("set-cookie")))
+            if not m:
+                break
+            user.sids[gen] = m.group(1)
+            hops += 1
+            r = await user.client.get(r.headers.get("location", url), headers=sid_header(user, gen))
         status, size = r.status_code, len(r.content)
     except httpx.TimeoutException:
         status, err = "timeout", "timeout"
@@ -74,7 +92,7 @@ async def fire(user, route, url, sched, t0, rows):
         "phase": "warmup" if sched - t0 < WARMUP else "measure",
         "sched_s": round(sched - t0, 4), "sched_wall": round(sched + WALL_OFFSET, 4), "send_lag_ms": round((send - sched) * 1000, 2),
         "latency_ms": round((end - sched) * 1000, 2), "status": status, "bytes": size,
-        "cookie_sent": cookie_sent, "error": err,
+        "cookie_sent": cookie_sent, "error": err, "hops": hops,
     })
 
 
@@ -106,7 +124,7 @@ async def main():
     rng = random.Random(SEED)
     pools = {k: load(k) for k in ("home", "src", "commits", "commit")}
     users = [User(i, random.Random(SEED * 1000 + i), pools) for i in range(USERS)]
-    if PRIME_URL and not COOKIELESS:
+    if PRIME_URL and not COOKIELESS and not FIRSTVISIT:
         await prime(users)
     total = WARMUP + DURATION
     t0 = time.monotonic() + 0.5
@@ -116,8 +134,8 @@ async def main():
         if t >= total:
             break
         u = users[rng.randrange(USERS)]
-        route, url = u.next_url()
-        tasks.append(asyncio.create_task(fire(u, route, url, t0 + t, t0, rows)))
+        route, url, gen = u.next_url()
+        tasks.append(asyncio.create_task(fire(u, route, url, gen, t0 + t, t0, rows)))
     print(f"scheduled {len(tasks)} requests over {total:.0f}s", flush=True)
     await asyncio.gather(*tasks)
     for u in users:

@@ -84,6 +84,7 @@ type entry struct {
 	NewSession bool    `json:"new_session"`
 	Sess       string  `json:"sess,omitempty"`      // first 8 chars of the session cookie
 	Principal  string  `json:"principal,omitempty"` // scheduling principal (fq modes)
+	Bounced    bool    `json:"bounced,omitempty"`   // answered by the gateway with a cookie-issuing 302
 }
 
 type ctxKey struct{}
@@ -122,6 +123,7 @@ func main() {
 	logs := make(chan entry, 1<<16)
 	done := startLogger(getenv("LOG_PATH", "/dev/stdout"), logs)
 	adm := newAdmitter(mode)
+	bnc := newBouncer()
 
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	proxy.Transport = &http.Transport{MaxIdleConns: 4096, MaxIdleConnsPerHost: 4096, IdleConnTimeout: 90 * time.Second, DisableCompression: true}
@@ -146,8 +148,17 @@ func main() {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		arrival := time.Now()
 		sess := sessionOf(r)
+		if bnc.enabled { // the gateway's own signed cookie is the session; Gitea's cookie is ignored
+			sess = bnc.session(r, arrival)
+		}
 		e := entry{TS: arrival.UnixMilli(), Mode: mode, Cookie: sess != "", Route: routeOf(r.URL.Path), IP: clientIP(r), Sess: short(sess)}
 		rw := &statusWriter{ResponseWriter: w, status: 200}
+		if bnc.enabled && sess == "" && !exempt(r) { // first visit: issue a cookie, no queue, no upstream
+			bnc.bounce(rw, r, arrival)
+			e.Status, e.Bounced, e.Principal = rw.status, true, "bounce"
+			logs <- e
+			return
+		}
 		release, reject, principal := adm.admit(r.Context(), reqInfo{ip: e.IP, session: sess, route: e.Route})
 		e.Principal = principal
 		e.WaitMs = ms(time.Since(arrival))
