@@ -130,6 +130,19 @@ func (q *fairQueue) principalLocked(session, route, ip string) (key, label strin
 	return key, "s:" + short(session)
 }
 
+// anonBacklog is the number of cookieless requests currently waiting.
+func (q *fairQueue) anonBacklog() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	n := 0
+	for p, l := range q.queues {
+		if strings.HasPrefix(p, "anon") {
+			n += l.Len()
+		}
+	}
+	return n
+}
+
 func (q *fairQueue) estimateLocked(p string) float64 {
 	if q.n[p] > 0 {
 		return q.sum[p] / q.n[p]

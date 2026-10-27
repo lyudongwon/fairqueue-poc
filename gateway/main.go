@@ -150,10 +150,13 @@ func main() {
 		sess := sessionOf(r)
 		if bnc.enabled { // the gateway's own signed cookie is the session; Gitea's cookie is ignored
 			sess = bnc.session(r, arrival)
+			if sess == "" && bnc.adaptive > 0 {
+				sess = sessionOf(r)
+			}
 		}
 		e := entry{TS: arrival.UnixMilli(), Mode: mode, Cookie: sess != "", Route: routeOf(r.URL.Path), IP: clientIP(r), Sess: short(sess)}
 		rw := &statusWriter{ResponseWriter: w, status: 200}
-		if bnc.enabled && sess == "" && !exempt(r) { // first visit: issue a cookie, no queue, no upstream
+		if bnc.enabled && sess == "" && !exempt(r) && bnc.active(adm, arrival) { // first visit: issue a cookie, no queue, no upstream
 			bnc.bounce(rw, r, arrival)
 			e.Status, e.Bounced, e.Principal = rw.status, true, "bounce"
 			logs <- e

@@ -44,6 +44,7 @@ services:
       ANON_ORDER: ${ANON_ORDER:-}
       ANON_HEAVY_CAP: ${ANON_HEAVY_CAP:-0}
       BOUNCE: ${BOUNCE:-}
+      BOUNCE_ADAPTIVE: ${BOUNCE_ADAPTIVE:-0}
       NEW_SPLIT: ${NEW_SPLIT:-}
       NEW_ORDER: ${NEW_ORDER:-}
       IP_SPLIT: ${IP_SPLIT:-}

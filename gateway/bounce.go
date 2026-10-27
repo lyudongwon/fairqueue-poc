@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,6 +30,22 @@ type bouncer struct {
 	enabled bool
 	secret  []byte
 	maxAge  time.Duration
+	// BOUNCE_ADAPTIVE=N (>0): only bounce while the anonymous queues hold >= N waiting requests
+	// (and for 10 s after), so cookie-accepting crawlers are not pushed into the shared probation pool.
+	adaptive int
+	until    atomic.Int64
+}
+
+type backlogger interface{ anonBacklog() int }
+
+func (b *bouncer) active(adm admitter, now time.Time) bool {
+	if b.adaptive <= 0 {
+		return true
+	}
+	if bl, ok := adm.(backlogger); ok && bl.anonBacklog() >= b.adaptive {
+		b.until.Store(now.Add(10 * time.Second).UnixNano())
+	}
+	return now.UnixNano() < b.until.Load()
 }
 
 func newBouncer() *bouncer {
@@ -44,7 +61,8 @@ func newBouncer() *bouncer {
 			log.Fatal(err)
 		}
 	}
-	log.Printf("cookie bounce enabled")
+	b.adaptive = envInt("BOUNCE_ADAPTIVE", 0)
+	log.Printf("cookie bounce enabled adaptive=%d", b.adaptive)
 	return b
 }
 
