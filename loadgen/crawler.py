@@ -64,7 +64,20 @@ class Pools:
         return t, u
 
 
+CRAWLER_IPS = int(os.environ.get("CRAWLER_IPS", "0"))  # >0: crawler uses only this many distinct IPs
+_IP_POOL = []
+
+
 def rand_ip(rng):
+    if CRAWLER_IPS > 0:
+        if not _IP_POOL:
+            r2 = random.Random(12345)
+            _IP_POOL.extend(rand_ip_any(r2) for _ in range(CRAWLER_IPS))
+        return rng.choice(_IP_POOL)
+    return rand_ip_any(rng)
+
+
+def rand_ip_any(rng):
     while True:
         a = rng.randint(11, 223)  # skips 0-10.x (incl. human 10.0.0.0/24) and multicast
         if a != 127:

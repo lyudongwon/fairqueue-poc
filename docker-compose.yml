@@ -44,6 +44,8 @@ services:
       ANON_ORDER: ${ANON_ORDER:-}
       ANON_HEAVY_CAP: ${ANON_HEAVY_CAP:-0}
       BOUNCE: ${BOUNCE:-}
+      NEW_SPLIT: ${NEW_SPLIT:-}
+      IP_SPLIT: ${IP_SPLIT:-}
       BOUNCE_SECRET: ${BOUNCE_SECRET:-fq-poc-secret}
       UPSTREAM: http://gitea:3000
       LOG_PATH: /app/${RUN_DIR:-results/scratch}/raw/gateway.jsonl
@@ -82,6 +84,7 @@ services:
       POOL: /app/urlpool
       RUN_DIR: /app/${RUN_DIR:-results/scratch}
       CRAWLER: ${CRAWLER:-rotating}
+      CRAWLER_IPS: ${CRAWLER_IPS:-0}
       C: ${C:-10}
       WARMUP: ${WARMUP:-30}
       DURATION: ${DURATION:-180}

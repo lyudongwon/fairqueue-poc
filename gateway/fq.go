@@ -36,6 +36,8 @@ type fairQueue struct {
 	mu            sync.Mutex
 	free          int
 	probation     time.Duration
+	ipSplit       bool               // IP_SPLIT=1: anon and probation pools are further split per client IP
+	newSplit      bool               // NEW_SPLIT=class: probation pool split into new:light / new:heavy
 	anonSplit     string             // "", "route" or "class": how cookieless requests are grouped (see anonKey)
 	anonOrder     string             // "" (FIFO) or "lifo": order inside an anonymous principal's queue
 	heavyCap      int                // >0: at most this many anonymous heavy requests in flight (needs anonSplit)
@@ -91,9 +93,12 @@ func (q *fairQueue) register(session string, age time.Duration) {
 }
 
 // principalLocked returns the scheduling key and its log label.
-func (q *fairQueue) principalLocked(session, route string) (key, label string) {
+func (q *fairQueue) principalLocked(session, route, ip string) (key, label string) {
 	if session == "" {
 		k := anonKey(q.anonSplit, route)
+		if q.ipSplit {
+			k += "@" + ip
+		}
 		return k, k
 	}
 	fs, ok := q.firstSeen[session]
@@ -102,6 +107,19 @@ func (q *fairQueue) principalLocked(session, route string) (key, label string) {
 		q.firstSeen[session] = fs
 	}
 	if q.probation > 0 && time.Since(fs) < q.probation {
+		if q.newSplit {
+			k := "new:light"
+			if isHeavyRoute(route) {
+				k = "new:heavy"
+			}
+			if q.ipSplit {
+				k += "@" + ip
+			}
+			return k, k
+		}
+		if q.ipSplit {
+			return "new@" + ip, "new@" + ip
+		}
 		return "new", "new"
 	}
 	key = "s:" + session
@@ -127,7 +145,7 @@ func (q *fairQueue) heavyBlockedLocked() bool {
 
 func (q *fairQueue) admit(ctx context.Context, ri reqInfo) (func(time.Duration), int, string) {
 	q.mu.Lock()
-	p, label := q.principalLocked(ri.session, ri.route)
+	p, label := q.principalLocked(ri.session, ri.route, ri.ip)
 	est := q.estimateLocked(p)
 	heavy := q.heavyCap > 0 && ri.session == "" && isHeavyRoute(ri.route)
 	if q.free > 0 && q.waiting == 0 && !(heavy && q.heavyBlockedLocked()) {
