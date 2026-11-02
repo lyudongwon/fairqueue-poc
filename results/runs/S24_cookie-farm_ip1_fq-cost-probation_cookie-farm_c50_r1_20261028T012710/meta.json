@@ -1,0 +1,5 @@
+{"run_id": "S24_cookie-farm_ip1_fq-cost-probation_cookie-farm_c50_r1_20261028T012710", "scenario": "S24_cookie-farm_ip1", "rep": 1, "mode": "fq-cost-probation", "crawler": "cookie-farm",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4, "fq_slots": 4, "probation_s": 600, "human_cookie_age_s": 86400, "anon_split": "class", "anon_order": "", "anon_heavy_cap": 0, "human_cookieless": "", "bounce": "", "new_split": "", "ip_split": "1", "crawler_ips": "1", "human_firstvisit": "1"},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 1,
+ "git": "63121d9",
+ "started": "2026-10-27T16:27:10Z", "ended": "2026-10-27T16:30:52Z", "status": "ok"}

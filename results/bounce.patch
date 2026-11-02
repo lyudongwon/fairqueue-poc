@@ -1,0 +1,481 @@
+diff --git a/docker-compose.yml b/docker-compose.yml
+index ce6a3fb..fcbc6df 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -43,6 +43,8 @@ services:
+       ANON_SPLIT: ${ANON_SPLIT:-}
+       ANON_ORDER: ${ANON_ORDER:-}
+       ANON_HEAVY_CAP: ${ANON_HEAVY_CAP:-0}
++      BOUNCE: ${BOUNCE:-}
++      BOUNCE_SECRET: ${BOUNCE_SECRET:-fq-poc-secret}
+       UPSTREAM: http://gitea:3000
+       LOG_PATH: /app/${RUN_DIR:-results/scratch}/raw/gateway.jsonl
+     volumes:
+@@ -65,6 +67,7 @@ services:
+       REGISTER_URL: ${REGISTER_URL:-}
+       HUMAN_COOKIE_AGE_S: ${HUMAN_COOKIE_AGE_S:-86400}
+       HUMAN_COOKIELESS: ${HUMAN_COOKIELESS:-}
++      HUMAN_FIRSTVISIT: ${HUMAN_FIRSTVISIT:-}
+     volumes:
+       - ./:/app
+     profiles: ["run"]
+diff --git a/gateway/bounce.go b/gateway/bounce.go
+new file mode 100644
+index 0000000..e9826cb
+--- /dev/null
++++ b/gateway/bounce.go
+@@ -0,0 +1,123 @@
++package main
++
++import (
++	"crypto/hmac"
++	"crypto/rand"
++	"crypto/sha256"
++	"encoding/hex"
++	"log"
++	"net/http"
++	"os"
++	"strconv"
++	"strings"
++	"time"
++)
++
++// Cookie bounce: a request without a valid gateway cookie is answered by the
++// gateway itself with a 302 back to the same URL plus a signed cookie. The
++// bounce never reaches the upstream and never enters the queue, so a first
++// visit does not wait behind a crawler flood. The retry carries the cookie and
++// is scheduled as that session (probation applies as for any new session).
++//
++// Token: <id>.<issued unix s>.<hmac>, hmac = first 16 bytes of
++// HMAC-SHA256(secret, id + "." + issued), hex. A forged or edited token fails
++// validation and is treated as cookieless (bounced again), so a client cannot
++// invent sessions or backdate one to skip probation.
++const sidCookie = "fq_sid"
++
++type bouncer struct {
++	enabled bool
++	secret  []byte
++	maxAge  time.Duration
++}
++
++func newBouncer() *bouncer {
++	b := &bouncer{enabled: os.Getenv("BOUNCE") == "1", maxAge: 30 * 24 * time.Hour}
++	if !b.enabled {
++		return b
++	}
++	if s := os.Getenv("BOUNCE_SECRET"); s != "" {
++		b.secret = []byte(s)
++	} else {
++		b.secret = make([]byte, 32)
++		if _, err := rand.Read(b.secret); err != nil {
++			log.Fatal(err)
++		}
++	}
++	log.Printf("cookie bounce enabled")
++	return b
++}
++
++func (b *bouncer) sign(payload string) string {
++	m := hmac.New(sha256.New, b.secret)
++	m.Write([]byte(payload))
++	return hex.EncodeToString(m.Sum(nil)[:16])
++}
++
++// mint returns a fresh signed token issued at now.
++func (b *bouncer) mint(now time.Time) string {
++	raw := make([]byte, 8)
++	if _, err := rand.Read(raw); err != nil {
++		log.Fatal(err)
++	}
++	payload := hex.EncodeToString(raw) + "." + strconv.FormatInt(now.Unix(), 10)
++	return payload + "." + b.sign(payload)
++}
++
++// valid checks the signature and age. It returns the id (used as the session).
++func (b *bouncer) valid(token string, now time.Time) (id string, issued time.Time, ok bool) {
++	parts := strings.Split(token, ".")
++	if len(parts) != 3 {
++		return "", time.Time{}, false
++	}
++	payload := parts[0] + "." + parts[1]
++	if !hmac.Equal([]byte(parts[2]), []byte(b.sign(payload))) {
++		return "", time.Time{}, false
++	}
++	sec, err := strconv.ParseInt(parts[1], 10, 64)
++	if err != nil {
++		return "", time.Time{}, false
++	}
++	issued = time.Unix(sec, 0)
++	if issued.After(now.Add(time.Minute)) || now.Sub(issued) > b.maxAge {
++		return "", time.Time{}, false
++	}
++	return parts[0], issued, true
++}
++
++// session returns the validated session id from the request, or "".
++func (b *bouncer) session(r *http.Request, now time.Time) string {
++	c, err := r.Cookie(sidCookie)
++	if err != nil {
++		return ""
++	}
++	id, _, ok := b.valid(c.Value, now)
++	if !ok {
++		return ""
++	}
++	return id
++}
++
++// exempt reports requests that must not be bounced: anything a cookie-less
++// client legitimately sends (API calls, git over HTTP, static assets, health).
++func exempt(r *http.Request) bool {
++	if r.Method != http.MethodGet && r.Method != http.MethodHead {
++		return true
++	}
++	p := r.URL.Path
++	for _, pre := range []string{"/api/", "/assets/", "/avatars/", "/-/", "/healthz"} {
++		if strings.HasPrefix(p, pre) {
++			return true
++		}
++	}
++	return strings.Contains(p, ".git/") || strings.HasSuffix(p, "/info/refs")
++}
++
++// bounce answers r with a 302 to the same URL and a freshly signed cookie.
++func (b *bouncer) bounce(w http.ResponseWriter, r *http.Request, now time.Time) {
++	http.SetCookie(w, &http.Cookie{
++		Name: sidCookie, Value: b.mint(now), Path: "/", HttpOnly: true,
++		SameSite: http.SameSiteLaxMode, MaxAge: int(b.maxAge.Seconds()),
++	})
++	http.Redirect(w, r, r.URL.RequestURI(), http.StatusFound)
++}
+diff --git a/gateway/bounce_test.go b/gateway/bounce_test.go
+new file mode 100644
+index 0000000..27ca461
+--- /dev/null
++++ b/gateway/bounce_test.go
+@@ -0,0 +1,102 @@
++package main
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++)
++
++func testBouncer() *bouncer {
++	return &bouncer{enabled: true, secret: []byte("test-secret"), maxAge: 24 * time.Hour}
++}
++
++func TestMintValid(t *testing.T) {
++	b := testBouncer()
++	now := time.Now()
++	tok := b.mint(now)
++	id, issued, ok := b.valid(tok, now)
++	if !ok || id == "" || issued.Unix() != now.Unix() {
++		t.Fatalf("valid token rejected: ok=%v id=%q issued=%v", ok, id, issued)
++	}
++}
++
++func TestForgeryRejected(t *testing.T) {
++	b := testBouncer()
++	now := time.Now()
++	tok := b.mint(now)
++	parts := strings.Split(tok, ".")
++	// backdate the issue time (to skip probation) keeping the old signature
++	forged := parts[0] + ".1000000000." + parts[2]
++	if _, _, ok := b.valid(forged, now); ok {
++		t.Fatal("backdated token accepted")
++	}
++	if _, _, ok := b.valid("abc.123.deadbeef", now); ok {
++		t.Fatal("made-up token accepted")
++	}
++	other := &bouncer{enabled: true, secret: []byte("other"), maxAge: 24 * time.Hour}
++	if _, _, ok := other.valid(tok, now); ok {
++		t.Fatal("token from another secret accepted")
++	}
++}
++
++func TestExpiredRejected(t *testing.T) {
++	b := testBouncer()
++	tok := b.mint(time.Now().Add(-48 * time.Hour))
++	if _, _, ok := b.valid(tok, time.Now()); ok {
++		t.Fatal("expired token accepted")
++	}
++}
++
++func TestBounceResponse(t *testing.T) {
++	b := testBouncer()
++	r := httptest.NewRequest("GET", "/poc/redis/blame/main/README.md?x=1", nil)
++	w := httptest.NewRecorder()
++	b.bounce(w, r, time.Now())
++	if w.Code != http.StatusFound {
++		t.Fatalf("status %d", w.Code)
++	}
++	if loc := w.Header().Get("Location"); loc != "/poc/redis/blame/main/README.md?x=1" {
++		t.Fatalf("location %q", loc)
++	}
++	// the cookie it sets must validate and give back a session on retry
++	var c *http.Cookie
++	for _, ck := range w.Result().Cookies() {
++		if ck.Name == sidCookie {
++			c = ck
++		}
++	}
++	if c == nil {
++		t.Fatal("no cookie set")
++	}
++	r2 := httptest.NewRequest("GET", "/poc/redis", nil)
++	r2.AddCookie(c)
++	if b.session(r2, time.Now()) == "" {
++		t.Fatal("retry with bounce cookie has no session")
++	}
++	if b.session(httptest.NewRequest("GET", "/poc/redis", nil), time.Now()) != "" {
++		t.Fatal("cookieless request has a session")
++	}
++}
++
++func TestExempt(t *testing.T) {
++	cases := []struct {
++		method, path string
++		want         bool
++	}{
++		{"GET", "/poc/redis", false},
++		{"GET", "/poc/redis/blame/main/a.go", false},
++		{"POST", "/user/login", true},
++		{"GET", "/api/v1/repos/x", true},
++		{"GET", "/assets/css/index.css", true},
++		{"GET", "/poc/redis.git/info/refs", true},
++		{"GET", "/healthz", true},
++	}
++	for _, c := range cases {
++		r := httptest.NewRequest(c.method, c.path, nil)
++		if got := exempt(r); got != c.want {
++			t.Errorf("%s %s: exempt=%v want %v", c.method, c.path, got, c.want)
++		}
++	}
++}
+diff --git a/gateway/main.go b/gateway/main.go
+index d6276f9..80a353a 100644
+--- a/gateway/main.go
++++ b/gateway/main.go
+@@ -84,6 +84,7 @@ type entry struct {
+ 	NewSession bool    `json:"new_session"`
+ 	Sess       string  `json:"sess,omitempty"`      // first 8 chars of the session cookie
+ 	Principal  string  `json:"principal,omitempty"` // scheduling principal (fq modes)
++	Bounced    bool    `json:"bounced,omitempty"`   // answered by the gateway with a cookie-issuing 302
+ }
+ 
+ type ctxKey struct{}
+@@ -122,6 +123,7 @@ func main() {
+ 	logs := make(chan entry, 1<<16)
+ 	done := startLogger(getenv("LOG_PATH", "/dev/stdout"), logs)
+ 	adm := newAdmitter(mode)
++	bnc := newBouncer()
+ 
+ 	proxy := httputil.NewSingleHostReverseProxy(upstream)
+ 	proxy.Transport = &http.Transport{MaxIdleConns: 4096, MaxIdleConnsPerHost: 4096, IdleConnTimeout: 90 * time.Second, DisableCompression: true}
+@@ -146,8 +148,17 @@ func main() {
+ 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		arrival := time.Now()
+ 		sess := sessionOf(r)
++		if bnc.enabled { // the gateway's own signed cookie is the session; Gitea's cookie is ignored
++			sess = bnc.session(r, arrival)
++		}
+ 		e := entry{TS: arrival.UnixMilli(), Mode: mode, Cookie: sess != "", Route: routeOf(r.URL.Path), IP: clientIP(r), Sess: short(sess)}
+ 		rw := &statusWriter{ResponseWriter: w, status: 200}
++		if bnc.enabled && sess == "" && !exempt(r) { // first visit: issue a cookie, no queue, no upstream
++			bnc.bounce(rw, r, arrival)
++			e.Status, e.Bounced, e.Principal = rw.status, true, "bounce"
++			logs <- e
++			return
++		}
+ 		release, reject, principal := adm.admit(r.Context(), reqInfo{ip: e.IP, session: sess, route: e.Route})
+ 		e.Principal = principal
+ 		e.WaitMs = ms(time.Since(arrival))
+diff --git a/loadgen/crawler.py b/loadgen/crawler.py
+index dcdfa09..c44f5ca 100644
+--- a/loadgen/crawler.py
++++ b/loadgen/crawler.py
+@@ -16,6 +16,7 @@ import csv
+ import http.cookiejar
+ import os
+ import random
++import re
+ import time
+ 
+ import httpx
+@@ -101,9 +102,13 @@ async def obtain_cookies(client, n, rng):
+             r = await client.get(COOKIE_URL, headers={"X-Forwarded-For": rand_ip(rng)})
+         except httpx.HTTPError:
+             continue
++        m = re.search(r"fq_sid=([^;]+)", ", ".join(r.headers.get_list("set-cookie")))
++        if m:  # gateway bounce (BOUNCE=1): the 302 itself carries the cookie
++            out.append(f"fq_sid={m.group(1)}")
++            continue
+         v = r.cookies.get("i_like_gitea")
+         if r.status_code == 200 and v:
+-            out.append(v)
++            out.append(f"i_like_gitea={v}")
+     if len(out) < n:
+         raise SystemExit(f"obtained only {len(out)}/{n} cookies")
+     return out
+@@ -116,7 +121,7 @@ async def worker(client, pools, rng, t0, deadline, rows, ring):
+         headers = {"X-Forwarded-For": ip}
+         cookie = ring.next()
+         if cookie:
+-            headers["Cookie"] = f"i_like_gitea={cookie}"
++            headers["Cookie"] = cookie
+         start = time.monotonic()
+         status = ""
+         try:
+diff --git a/loadgen/human.py b/loadgen/human.py
+index 3f8dd3d..bddb7d1 100644
+--- a/loadgen/human.py
++++ b/loadgen/human.py
+@@ -12,6 +12,7 @@ import csv
+ import http.cookiejar
+ import os
+ import random
++import re
+ import time
+ 
+ import httpx
+@@ -29,6 +30,8 @@ PRIME_URL = os.environ.get("PRIME_URL", "http://gitea:3000/")  # "" disables pri
+ REGISTER_URL = os.environ.get("REGISTER_URL", "")  # gateway /seen endpoint (fq modes only)
+ COOKIE_AGE_S = int(os.environ.get("HUMAN_COOKIE_AGE_S", "86400"))
+ COOKIELESS = os.environ.get("HUMAN_COOKIELESS", "") not in ("", "0")  # never store or send a cookie (first-visit users)
++FIRSTVISIT = os.environ.get("HUMAN_FIRSTVISIT", "") not in ("", "0")  # every 4-step visit is a brand-new visitor with no cookie
++SID = "fq_sid"  # the gateway's bounce cookie (BOUNCE=1); handled by hand because the jar drops dotless hosts
+ CYCLE = ["home", "src", "commits", "commit"]
+ WALL_OFFSET = time.time() - time.monotonic()
+ 
+@@ -41,28 +44,43 @@ def load(name):
+ class User:
+     def __init__(self, idx, rng, pools):
+         self.idx, self.rng, self.pools, self.step = idx, rng, pools, 0
++        self.sids = {}  # visitor generation -> fq_sid value
+         self.client = httpx.AsyncClient(
+             base_url=BASE, timeout=TIMEOUT, follow_redirects=False,
+             limits=httpx.Limits(max_connections=None, max_keepalive_connections=50),
+             headers={"X-Forwarded-For": f"10.0.0.{idx + 1}", "User-Agent": f"human-sim/{idx + 1}"})
+-        if COOKIELESS:  # a human with no session cookie: indistinguishable from a cookieless crawler by identity
++        if COOKIELESS or FIRSTVISIT:  # a human with no session cookie: indistinguishable from a cookieless crawler by identity
+             self.client.cookies.jar.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+ 
+     def next_url(self):
+         route = CYCLE[self.step % len(CYCLE)]
++        gen = self.step // len(CYCLE)  # a new visitor every full cycle
+         self.step += 1
+         if route == "commits":
+-            return route, self.pools["commits"][0]  # page 1
+-        return route, self.rng.choice(self.pools[route])
++            return route, self.pools["commits"][0], gen  # page 1
++        return route, self.rng.choice(self.pools[route]), gen
+ 
+ 
+-async def fire(user, route, url, sched, t0, rows):
++def sid_header(user, gen):
++    if FIRSTVISIT and gen in user.sids:
++        return {"Cookie": f"{SID}={user.sids[gen]}"}
++    return {}
++
++
++async def fire(user, route, url, gen, sched, t0, rows):
+     await asyncio.sleep(max(0.0, sched - time.monotonic()))
+     send = time.monotonic()
+     cookie_sent = "i_like_gitea=" in user.client.headers.get("Cookie", "") or         any(c.name == "i_like_gitea" for c in user.client.cookies.jar)
+-    status, size, err = "", 0, ""
++    status, size, err, hops = "", 0, "", 0
+     try:
+-        r = await user.client.get(url)
++        r = await user.client.get(url, headers=sid_header(user, gen))
++        while FIRSTVISIT and r.status_code == 302 and hops < 3:  # bounce: take the cookie, ask again
++            m = re.search(SID + r"=([^;]+)", ", ".join(r.headers.get_list("set-cookie")))
++            if not m:
++                break
++            user.sids[gen] = m.group(1)
++            hops += 1
++            r = await user.client.get(r.headers.get("location", url), headers=sid_header(user, gen))
+         status, size = r.status_code, len(r.content)
+     except httpx.TimeoutException:
+         status, err = "timeout", "timeout"
+@@ -74,7 +92,7 @@ async def fire(user, route, url, sched, t0, rows):
+         "phase": "warmup" if sched - t0 < WARMUP else "measure",
+         "sched_s": round(sched - t0, 4), "sched_wall": round(sched + WALL_OFFSET, 4), "send_lag_ms": round((send - sched) * 1000, 2),
+         "latency_ms": round((end - sched) * 1000, 2), "status": status, "bytes": size,
+-        "cookie_sent": cookie_sent, "error": err,
++        "cookie_sent": cookie_sent, "error": err, "hops": hops,
+     })
+ 
+ 
+@@ -106,7 +124,7 @@ async def main():
+     rng = random.Random(SEED)
+     pools = {k: load(k) for k in ("home", "src", "commits", "commit")}
+     users = [User(i, random.Random(SEED * 1000 + i), pools) for i in range(USERS)]
+-    if PRIME_URL and not COOKIELESS:
++    if PRIME_URL and not COOKIELESS and not FIRSTVISIT:
+         await prime(users)
+     total = WARMUP + DURATION
+     t0 = time.monotonic() + 0.5
+@@ -116,8 +134,8 @@ async def main():
+         if t >= total:
+             break
+         u = users[rng.randrange(USERS)]
+-        route, url = u.next_url()
+-        tasks.append(asyncio.create_task(fire(u, route, url, t0 + t, t0, rows)))
++        route, url, gen = u.next_url()
++        tasks.append(asyncio.create_task(fire(u, route, url, gen, t0 + t, t0, rows)))
+     print(f"scheduled {len(tasks)} requests over {total:.0f}s", flush=True)
+     await asyncio.gather(*tasks)
+     for u in users:
+diff --git a/scripts/run.sh b/scripts/run.sh
+index 8eb23a5..741e0c9 100644
+--- a/scripts/run.sh
++++ b/scripts/run.sh
+@@ -8,6 +8,7 @@ export MODE=${MODE:-none} CRAWLER=${CRAWLER:-none} C=${C:-0}
+ export RATE_PER_IP=${RATE_PER_IP:-2} BURST_PER_IP=${BURST_PER_IP:-2} GLOBAL_N=${GLOBAL_N:-4} ANON_N=${ANON_N:-2} COOKIE_M=${COOKIE_M:-4}
+ export FQ_SLOTS=${FQ_SLOTS:-4} PROBATION_S=${PROBATION_S:-600} HUMAN_COOKIE_AGE_S=${HUMAN_COOKIE_AGE_S:-86400}
+ export ANON_SPLIT=${ANON_SPLIT:-} HUMAN_COOKIELESS=${HUMAN_COOKIELESS:-} ANON_ORDER=${ANON_ORDER:-} ANON_HEAVY_CAP=${ANON_HEAVY_CAP:-0}
++export BOUNCE=${BOUNCE:-} HUMAN_FIRSTVISIT=${HUMAN_FIRSTVISIT:-}
+ case "$MODE" in fq-*) export REGISTER_URL=http://gateway:9090/seen ;; *) export REGISTER_URL= ;; esac
+ export WARMUP=${WARMUP:-30} DURATION=${DURATION:-180} RATE=${RATE:-3} SEED=$REP
+ 
+@@ -53,7 +54,7 @@ ended=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+ 
+ cat > "$RUN_DIR/meta.json" <<EOF
+ {"run_id": "$RUN_ID", "scenario": "$SCEN", "rep": $REP, "mode": "$MODE", "crawler": "$CRAWLER",
+- "c": $C, "gateway_params": {"rate_per_ip": $RATE_PER_IP, "burst_per_ip": $BURST_PER_IP, "global_n": $GLOBAL_N, "anon_n": $ANON_N, "cookie_m": $COOKIE_M, "fq_slots": $FQ_SLOTS, "probation_s": $PROBATION_S, "human_cookie_age_s": $HUMAN_COOKIE_AGE_S, "anon_split": "$ANON_SPLIT", "anon_order": "$ANON_ORDER", "anon_heavy_cap": $ANON_HEAVY_CAP, "human_cookieless": "$HUMAN_COOKIELESS"},
++ "c": $C, "gateway_params": {"rate_per_ip": $RATE_PER_IP, "burst_per_ip": $BURST_PER_IP, "global_n": $GLOBAL_N, "anon_n": $ANON_N, "cookie_m": $COOKIE_M, "fq_slots": $FQ_SLOTS, "probation_s": $PROBATION_S, "human_cookie_age_s": $HUMAN_COOKIE_AGE_S, "anon_split": "$ANON_SPLIT", "anon_order": "$ANON_ORDER", "anon_heavy_cap": $ANON_HEAVY_CAP, "human_cookieless": "$HUMAN_COOKIELESS", "bounce": "$BOUNCE", "human_firstvisit": "$HUMAN_FIRSTVISIT"},
+  "warmup_s": $WARMUP, "duration_s": $DURATION, "human_rate": $RATE, "seed": $SEED,
+  "git": "$(git rev-parse --short HEAD)",
+  "started": "$started", "ended": "$ended", "status": "$status"}
+diff --git a/scripts/stage10.sh b/scripts/stage10.sh
+new file mode 100644
+index 0000000..b7fd74b
+--- /dev/null
++++ b/scripts/stage10.sh
+@@ -0,0 +1,22 @@
++#!/bin/sh
++# Stage 10: cookie bounce (first-visit fix). Every visit of the human simulator is a brand-new,
++# cookieless visitor (HUMAN_FIRSTVISIT=1). Crawlers: rotating / cookie-keeper / cookie-farm, C=50, 3 reps.
++#   S21  no bounce (baseline)   S22  BOUNCE=1 (gateway issues a signed cookie by 302)
++# Same scheduler both times: fq-cost-probation + class-split anonymous queues.
++# Finished runs are skipped, so this can be re-run after an interruption.
++set -eu
++cd "$(dirname "$0")/.."
++export C=${C:-50} FQ_SLOTS=${FQ_SLOTS:-4} PROBATION_S=${PROBATION_S:-600} MODE=fq-cost-probation ANON_SPLIT=class HUMAN_FIRSTVISIT=1
++run() { # scenario rep
++  for f in results/runs/${1}_*_r${2}_*/summary.json; do
++    if [ -f "$f" ]; then echo "== skip $1 r$2"; return 0; fi
++  done
++  sh scripts/run.sh "$@" || true
++}
++for rep in 1 2 3; do
++  for kind in rotating cookie-keeper cookie-farm; do
++    CRAWLER=$kind BOUNCE=       run S21_$kind $rep
++    CRAWLER=$kind BOUNCE=1      run S22_$kind $rep
++  done
++done
++python3 analysis/aggregate.py || true

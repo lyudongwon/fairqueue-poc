@@ -1,0 +1,5 @@
+{"run_id": "S9_anon-cap_rotating_c50_r4_20261026T051637", "scenario": "S9", "rep": 4, "mode": "anon-cap", "crawler": "rotating",
+ "c": 50, "gateway_params": {"rate_per_ip": 2, "burst_per_ip": 2, "global_n": 4, "anon_n": 2, "cookie_m": 4, "fq_slots": 4, "probation_s": 600, "human_cookie_age_s": 86400, "anon_split": "", "anon_order": "", "anon_heavy_cap": 0, "human_cookieless": "1"},
+ "warmup_s": 30, "duration_s": 180, "human_rate": 3, "seed": 4,
+ "git": "adef615",
+ "started": "2026-10-25T20:16:37Z", "ended": "2026-10-25T20:20:21Z", "status": "ok"}
